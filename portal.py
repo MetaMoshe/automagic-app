@@ -1231,6 +1231,7 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .intro h3{font-size:clamp(20px,2.2vw,24px);margin:10px 0 8px}.intro>p{margin:0;color:var(--muted);line-height:1.6;max-width:62ch}
 .isteps{margin:16px 0 0;padding-left:20px;display:grid;gap:8px;color:var(--muted);line-height:1.55}.isteps b{color:var(--ink);font-weight:600}
 .iact{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.panel .hd .badge{font:600 11px var(--fm);background:var(--cyan);color:var(--on-cyan);border-radius:999px;padding:2px 8px;margin-left:4px}.rows.mrows li{grid-template-columns:minmax(0,1fr) auto}.mrows .when{white-space:nowrap;flex:none;font:500 12px var(--fm);color:var(--faint);margin-left:auto}
 .side .badge{margin-left:auto;font:600 11px var(--fm);background:var(--cyan);color:var(--on-cyan);border-radius:999px;padding:2px 8px}
 .ov-side{display:grid;gap:16px;min-width:0}.mnew{display:flex;gap:12px;align-items:flex-start;text-decoration:none;color:var(--muted);border-color:rgba(127,211,228,.45);font-size:14px;line-height:1.5;padding:16px 18px}.mnew svg{flex:none;color:var(--cyan);margin-top:2px}.mnew b{color:var(--ink)}
 .ibx{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}@media (max-width:1000px){.ibx{grid-template-columns:minmax(0,1fr)}}
@@ -1388,18 +1389,9 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
     </ol>
     <div class="iact"><a class="btn btn-p" href="/portal/how-we-work">How we work →</a><a class="btn btn-g" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></div>
    </div>{% endif %}
-   <div class="card panel"><div class="hd"><h3>{{ icon('doc')|safe }}Project docs</h3>{% if legal %}<a href="#legal">View all {{ legal|length }}</a>{% endif %}</div>
-    {% if legal %}<ul class="rows">{% for f in legal[:3] %}<li><span class="mini">{{ f.name|ext }}</span><span class="tx"><b>{{ f.name }}</b><span>{{ f.category or 'Document' }} · shared {{ f.at[:10] }}</span></span><a class="btn btn-g btn-s" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener">Open</a></li>{% endfor %}</ul>
-    {% else %}<p class="none">No documents yet. Proposals and agreements will appear here when we share them.</p>{% endif %}</div>
-   <div class="card panel"><div class="hd"><h3>{{ icon('card')|safe }}Invoices</h3><a href="#invoices">View all</a></div>
-    {% set open_inv = (inv or [])|selectattr('status','equalto','open')|list %}
-    {% if not stripe or not c.stripe_customer_id %}<p class="none">Billing isn't set up for your account yet.</p>
-    {% elif inv_err %}<p class="none">Invoices can't be loaded right now.</p>
-    {% elif open_inv %}<ul class="rows">{% for i in open_inv[:3] %}<li><span class="mini">INV</span><span class="tx"><b>{{ i.number }}</b><span>{% if i.due %}Due {{ i.due }}{% else %}Issued {{ i.created }}{% endif %}</span></span><span class="row-r" style="display:flex;gap:12px;align-items:center"><span class="amt">{{ i.amount }}</span>{% if i.url %}<a class="btn btn-p btn-s" href="{{ i.url }}" target="_blank" rel="noopener">Pay</a>{% endif %}</span></li>{% endfor %}</ul>
-    {% else %}<p class="none">You're all paid up. Nothing is due.</p>{% endif %}</div>
-   <div class="card panel"><div class="hd"><h3>{{ icon('drive')|safe }}Your Drive</h3>{% if drive %}<a href="#drive">View all {{ drive|length }}</a>{% endif %}</div>
-    <div class="drop" tabindex="0" role="button"><b>Drop files here</b> or click to share them with our team</div>
-    {% if drive %}<ul class="rows">{% for f in drive[:3] %}<li><span class="mini">{{ f.name|ext }}</span><span class="tx"><b>{{ f.name }}</b><span>{{ 'You' if f.uploaded_by == 'client' else 'Automagic' }} · {{ f.at[:10] }}</span></span><a class="btn btn-g btn-s" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener">Open</a></li>{% endfor %}</ul>{% else %}<p class="none" style="padding-top:8px">Nothing shared yet.</p>{% endif %}</div>
+   <div class="card panel"><div class="hd"><h3>{{ icon('mail')|safe }}Messages{% if unread %} <span class="badge">{{ unread }} new</span>{% endif %}</h3><a href="#inbox">{{ 'Open inbox' if msgs else 'Write to ' ~ con.name.split(' ')[0] }}</a></div>
+    {% if msgs %}<ul class="rows mrows">{% for m in (msgs|reverse|list)[:3] %}<li><span class="tx"><b>{{ 'You' if m.sender == 'client' else (m.author or con.name) }}{% if m.subject %} · {{ m.subject }}{% endif %}</b><span>{{ m.body|replace('\n', ' ')|truncate(140) }}</span></span><span class="when">{{ m.at[:10] }}</span></li>{% endfor %}</ul>
+    {% else %}<p class="none">No messages yet. Updates from {{ con.name.split(' ')[0] }} will appear here, and you can write to us any time from your inbox.</p>{% endif %}</div>
   </div>
   <aside class="ov-side"><div class="card cc"><span class="label">Your consultant</span>
    <div class="cc-h">{% if con.photo %}<img class="ph" src="/consultant-photo/{{ con.id }}" alt="" width="64" height="64">{% else %}<div class="ph" aria-hidden="true">{{ con.name[:1] }}</div>{% endif %}<div><b>{{ con.name }}</b><span>{{ con.title }}</span></div></div>
