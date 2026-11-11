@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: automagic-portfolio
+    name: automagic
     runtime: python
     plan: starter
     buildCommand: pip install -r requirements.txt && python build.py
