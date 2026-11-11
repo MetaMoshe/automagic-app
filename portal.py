@@ -895,6 +895,9 @@ ICON = {
  "book": '<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v15H5.5A1.5 1.5 0 0 0 4 19.5z"/><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H20v-3M8 7h8M8 11h6"/>',
  "ext": '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
  "cal": '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
+ "tag": '<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+ "calc": '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h4"/>',
+ "check": '<path d="m5 12 5 5 9-10"/>',
 }
 
 
@@ -932,8 +935,9 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
  .side{position:static;display:flex;overflow-x:auto;gap:6px;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}.side::-webkit-scrollbar{display:none}
  .side a{flex:none;border:1px solid var(--line);padding:8px 12px;font-size:14px}.side a.on{box-shadow:none;border-color:var(--cyan)}}
 .view[hidden]{display:none}
-.side a.ext{position:relative;margin-top:10px;border-top:1px solid var(--line);border-radius:0 0 8px 8px;padding-top:14px}.side a.ext svg:last-child{margin-left:auto;opacity:.6}
-@media (max-width:900px){.side a.ext{margin-top:0;border-radius:8px;padding-top:8px;border:1px solid var(--line)}}
+.side a.ext{position:relative}.side a.ext svg:last-child{margin-left:auto;opacity:.6}
+.side a.sep{margin-top:10px;border-top:1px solid var(--line);border-radius:0 0 8px 8px;padding-top:14px}
+@media (max-width:900px){.side a.sep{margin-top:0;border-radius:8px;padding-top:8px;border:1px solid var(--line)}.side a.sep.on{border-color:var(--cyan)}}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .foot{border-top:1px solid var(--line);background:var(--bg-2)}
 .foot .in{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:12px 28px;flex-wrap:wrap;padding:20px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));font-size:13.5px;color:var(--faint)}
@@ -1043,6 +1047,29 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 .f input{width:100%;font:15px var(--fb);color:var(--ink);background:var(--bg);border:1.5px solid var(--line-2);border-radius:9px;padding:11px 12px}
 .f input:focus{outline:none;border-color:var(--cyan)}.f input[readonly]{color:var(--muted);border-style:dashed}
 .note{margin:0 0 18px;padding:12px 16px;border:1px solid rgba(127,211,228,.35);border-radius:10px;background:rgba(127,211,228,.07)}
+.prin{list-style:none;margin:0 0 22px;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.prin li{display:flex;gap:10px;align-items:flex-start;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);font-size:14px;color:var(--muted);line-height:1.5}
+.prin li svg{flex:none;color:var(--ok);margin-top:2px}.prin b{color:var(--ink);font-weight:600}
+.pm{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.pc{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;display:grid;align-content:start;gap:10px}
+.pc.ext{background:transparent;border-style:dashed;grid-column:1/-1}
+.pt{display:flex;justify-content:space-between;align-items:center;gap:10px}.pn{font:500 12px var(--fm);color:var(--faint);letter-spacing:.1em}
+.pu{font:500 11px var(--fm);letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:999px;border:1px solid rgba(127,211,228,.4);color:var(--cyan);background:rgba(127,211,228,.07)}
+.pc h3{font-size:19px;font-weight:600}.pc p.pp{color:var(--faint);font-size:13.5px}.pp b{font:600 22px var(--fd);color:var(--ink);margin:0 4px}.pp small{font-size:13.5px}.pc p{margin:0;color:var(--muted);line-height:1.55;font-size:14.5px}.pl{font-size:14px;text-decoration:none}
+.pflow{margin-top:14px}.pflow ol{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;counter-reset:f}
+.pflow li{counter-increment:f;display:grid;gap:4px;padding:14px;border-radius:10px;background:var(--bg-2);border:1px solid var(--line)}
+.pflow li::before{content:counter(f);font:500 12px var(--fm);color:var(--cyan)}.pflow li b{font:600 15px var(--fd)}.pflow li span{color:var(--muted);font-size:13.5px}
+.pflow>p{margin:16px 0 0;color:var(--muted);font-size:14.5px}
+@media (max-width:900px){.prin,.pm,.pflow ol{grid-template-columns:minmax(0,1fr)}}
+.roi{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:18px;align-items:start}.roi .fg{grid-template-columns:minmax(0,1fr);min-width:0}
+@media (max-width:1000px){.roi{grid-template-columns:minmax(0,1fr)}}
+.rh{font-size:17px;font-weight:600;margin-top:6px}.f output{color:var(--cyan)}
+.f input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--cyan);height:28px}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.kpi{display:grid;gap:6px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.kpi span{font:500 11px var(--fm);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}.kpi b{font:600 clamp(24px,3vw,32px) var(--fd);font-variant-numeric:tabular-nums}
+.kpi.hi{border-color:rgba(127,211,228,.45);background:linear-gradient(160deg,rgba(127,211,228,.1),var(--surface) 70%)}.kpi.hi b{color:var(--cyan)}
+td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5px;line-height:1.55}
 .kv{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 14px;font-size:14.5px;margin:0}.kv dt{color:var(--faint)}.kv dd{margin:0}
 </style></head><body>
 <header class="top"><div class="in"><a href="/" aria-label="Automagic home"><img src="/brand/wordmark-light.svg" alt="Automagic"></a>
@@ -1055,8 +1082,10 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Project docs</a>
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
  <a href="#drive" data-v="drive">{{ icon('drive')|safe }}Your Drive</a>
- <a href="#settings" data-v="settings">{{ icon('gear')|safe }}Settings</a>
+ <a href="#pricing" data-v="pricing">{{ icon('tag')|safe }}Engagement & pricing</a>
+ <a href="#roi" data-v="roi">{{ icon('calc')|safe }}ROI calculator</a>
  <a href="/work/" target="_blank" rel="noopener" class="ext">{{ icon('book')|safe }}Case studies<span class="sr">(opens in a new tab)</span>{{ icon('ext', 14)|safe }}</a>
+ <a href="#settings" data-v="settings" class="sep">{{ icon('gear')|safe }}Settings</a>
 </nav>
 <main>
 {% if note %}<p class="note" role="status">{{ note }}</p>{% endif %}
@@ -1150,6 +1179,55 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  {% else %}<div class="empty">Your drive is empty.</div>{% endif %}
 </section>
 
+<section class="view" id="v-pricing" hidden>
+ <div class="vh"><span class="label">Engagement models & pricing</span><h2>How we charge</h2><p>A hybrid model, so you pay separately for leadership, ongoing expertise and what is built, each on its own terms. Prices below are starting points; your exact fees are set out in your proposal.</p></div>
+ <ul class="prin">
+  <li>{{ icon('check')|safe }}<span><b>You own everything we build.</b> Code, prompts, workflows and data stay yours.</span></li>
+  <li>{{ icon('check')|safe }}<span><b>No mark-up on external costs.</b> You pay providers directly, at cost.</span></li>
+  <li>{{ icon('check')|safe }}<span><b>Priced before work starts.</b> Each wave is agreed before it begins, with no surprises.</span></li>
+ </ul>
+ <div class="pm">
+  <article class="pc"><div class="pt"><span class="pn">01</span><span class="pu">One-off · fixed</span></div><h3>Discovery</h3><p class="pp">Starting from <b>$XXXX</b> <small>fixed</small></p><p>A 3–4 day investigation, your AI Transformation Report and a leadership readout.</p><a class="pl" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></article>
+  <article class="pc"><div class="pt"><span class="pn">02</span><span class="pu">Monthly</span></div><h3>Fractional Transformation Lead</h3><p class="pp">Starting from <b>$XXXX</b> <small>a month</small></p><p>A senior lead for your AI programme: roadmap, governance rules, vendors, adoption and monthly steering reports.</p></article>
+  <article class="pc"><div class="pt"><span class="pn">03</span><span class="pu">Monthly</span></div><h3>Monthly consultancy</h3><p class="pp">Starting from <b>$XXXX</b> <small>a month</small></p><p>Architecture, delivery management, monitoring, fixes, minor changes and tuning.</p></article>
+  <article class="pc"><div class="pt"><span class="pn">04</span><span class="pu">Fixed per item</span></div><h3>Build: fixed cost per item</h3><p>Design, build, integration, testing, onboarding and launch of each agent, tool or change, priced before its wave starts.</p></article>
+  <article class="pc ext"><div class="pt"><span class="pn">05</span><span class="pu">Paid by you · at cost</span></div><h3>External costs</h3><p>Software licences, AI model usage, hosting, data providers and APIs, billed to you directly by each provider.</p></article>
+ </div>
+ <div class="card pflow"><span class="label">How it fits together</span>
+  <ol><li><b>Discovery</b><span>Once, at the start</span></li><li><b>Lead + consultancy</b><span>Monthly, while the programme runs</span></li><li><b>Builds in waves</b><span>A fixed price per item, agreed per wave</span></li><li><b>External costs</b><span>Direct to providers, as you use them</span></li></ol>
+  <p>Your exact fees are in your proposal{% if legal %} under <a href="#legal">Project docs</a>{% endif %}. Questions? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">Ask {{ con.name.split(' ')[0] }}</a>.</p>
+ </div>
+</section>
+
+<section class="view" id="v-roi" hidden>
+ <div class="vh"><span class="label">ROI calculator</span><h2>Estimate your return</h2><p>Adjust the numbers to match your team. Everything is calculated in your browser and nothing is saved or sent.</p></div>
+ <div class="roi">
+  <form class="card fg" id="roi-f">
+   <h3 class="rh">Time saved</h3>
+   <div class="f"><label for="r-people">People whose work changes</label><input id="r-people" type="number" min="0" step="1" value="12" inputmode="numeric"></div>
+   <div class="f"><label for="r-hours">Hours saved per person, per week</label><input id="r-hours" type="number" min="0" step="0.5" value="5" inputmode="decimal"></div>
+   <div class="f"><label for="r-rate">Loaded cost per hour ($)</label><input id="r-rate" type="number" min="0" step="1" value="90" inputmode="decimal"></div>
+   <div class="f"><label for="r-adopt">Adoption rate: <output id="r-adopt-o">70%</output></label><input id="r-adopt" type="range" min="10" max="100" step="5" value="70"></div>
+   <div class="f"><label for="r-rev">Extra revenue per year, optional ($)</label><input id="r-rev" type="number" min="0" step="1000" value="0" inputmode="decimal"></div>
+   <h3 class="rh">Investment</h3>
+   <div class="f"><label for="r-once">One-off: discovery and builds ($)</label><input id="r-once" type="number" min="0" step="1000" value="60000" inputmode="decimal"></div>
+   <div class="f"><label for="r-month">Monthly: lead, consultancy and external costs ($)</label><input id="r-month" type="number" min="0" step="500" value="6000" inputmode="decimal"></div>
+  </form>
+  <div class="fg">
+   <div class="kpis">
+    <div class="kpi hi"><span>Return on investment, year 1</span><b id="o-roi">–</b></div>
+    <div class="kpi"><span>Payback</span><b id="o-pay">–</b></div>
+    <div class="kpi"><span>Value created per year</span><b id="o-val">–</b></div>
+    <div class="kpi"><span>Hours freed per year</span><b id="o-hrs">–</b></div>
+   </div>
+   <div class="card"><h3 class="rh" style="margin-top:0">Three-year view</h3>
+    <div class="tw"><table><thead><tr><th>Year</th><th>Value</th><th>Cost</th><th>Net</th><th>Cumulative</th></tr></thead><tbody id="o-tbl"></tbody></table></div>
+    <p class="rnote">Assumes 46 working weeks a year and that the one-off cost falls in year 1. This is an estimate to frame the conversation, not a quote. Your consultant can build a detailed business case with you during discovery.</p>
+   </div>
+  </div>
+ </div>
+</section>
+
 <section class="view" id="v-settings" hidden>
  <div class="vh"><span class="label">Settings</span><h2>Your profile and account</h2></div>
  <div class="grid2">
@@ -1183,12 +1261,26 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 </div></footer>
 <script>
 (function(){
-  var views=['home','consultant','legal','invoices','drive','settings'];
+  var views=['home','consultant','legal','invoices','drive','pricing','roi','settings'];
   function show(){var v=(location.hash||'#home').slice(1); if(views.indexOf(v)<0) v='home';
     views.forEach(function(n){document.getElementById('v-'+n).hidden=n!==v});
     document.querySelectorAll('.side a').forEach(function(a){a.classList.toggle('on',a.dataset.v===v); if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current')});
     window.scrollTo(0,0);}
   window.addEventListener('hashchange',show); show();
+  var rf=document.getElementById('roi-f');
+  if(rf){ var WK=46, fmt=function(n){return (n<0?'-$':'$')+Math.round(Math.abs(n)).toLocaleString('en-US')};
+    var g=function(id){var v=parseFloat(document.getElementById(id).value);return isFinite(v)&&v>0?v:0};
+    function calc(){ var ad=g('r-adopt')/100; document.getElementById('r-adopt-o').textContent=Math.round(ad*100)+'%';
+      var hrs=g('r-people')*g('r-hours')*WK*ad, val=hrs*g('r-rate')+g('r-rev'), once=g('r-once'), mo=g('r-month'), run=mo*12;
+      var c1=once+run, roi=c1>0?(val-c1)/c1*100:0, net=val/12-mo;
+      document.getElementById('o-hrs').textContent=Math.round(hrs).toLocaleString('en-US');
+      document.getElementById('o-val').textContent=fmt(val);
+      document.getElementById('o-roi').textContent=c1>0?Math.round(roi)+'%':'–';
+      var pay=net>0?once/net:Infinity; document.getElementById('o-pay').textContent=net<=0?'Not reached':pay<1?'Under 1 month':pay>36?'Over 3 years':Math.ceil(pay)+' months';
+      var cum=0,rows='';for(var y=1;y<=3;y++){var c=run+(y===1?once:0),n=val-c;cum+=n;
+        rows+='<tr><td>Year '+y+'</td><td class="num">'+fmt(val)+'</td><td class="num">'+fmt(c)+'</td><td class="num'+(n<0?' neg':'')+'">'+fmt(n)+'</td><td class="num'+(cum<0?' neg':'')+'">'+fmt(cum)+'</td></tr>';}
+      document.getElementById('o-tbl').innerHTML=rows; }
+    rf.addEventListener("submit",function(e){e.preventDefault()}); rf.addEventListener("input",calc); calc(); }
   var picker=document.getElementById('picker'), active=null;
   function up(files, zone){ if(!files||!files.length) return; var fd=new FormData(); for(var i=0;i<files.length;i++) fd.append('file',files[i]);
     zone.innerHTML='<b>Uploading…</b>';
