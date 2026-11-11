@@ -21,6 +21,7 @@ from flask import Blueprint, abort, jsonify, redirect, render_template_string, r
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+import admin_ui as U
 import server as S
 
 bp = Blueprint("portal", __name__)
@@ -662,54 +663,9 @@ def ext(name):
 S.app.jinja_env.filters["fsize"] = size
 S.app.jinja_env.filters["ext"] = ext
 
-ADMIN_HEAD = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{% block t %}Clients{% endblock %} · Automagic Admin</title><meta name="robots" content="noindex">""" + S.FONTS + "<style>" + S.BASE_CSS + """
-header{background:var(--band);border-bottom:1px solid var(--line)}
-.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
-header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;height:60px}
-header h1{font-size:18px;margin:0}header form{margin:0}
-nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:24px 0 8px}
-nav.tabs a{padding:7px 14px;border-radius:999px;border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:14px}
-nav.tabs a:hover,nav.tabs a.on{color:var(--ink);border-color:var(--cyan)}
-section{margin:24px 0}h2{font-size:22px;margin:0 0 12px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
-.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
-table{border-collapse:collapse;width:100%;font-size:14px}th{font:500 11px "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;background:var(--cyan-soft);white-space:nowrap}
-td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:middle}
-tr.rowlink{cursor:pointer}tr.rowlink:hover td{background:rgba(127,207,224,.05)}
-.pill{font:500 11px "IBM Plex Mono",monospace;padding:2px 8px;border-radius:999px;background:var(--cyan-soft);color:var(--cyan);white-space:nowrap}
-.pill.off{background:transparent;border:1px solid var(--line);color:var(--muted)}
-.empty{color:var(--muted)}
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}
-.grid .full{grid-column:1/-1}
-@media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
-label.f{display:block;font:500 11px "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
-input[type=text],input[type=email],input[type=url],input[type=tel],input[type=password],select,textarea{width:100%;font:15px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px}
-textarea{min-height:110px;resize:vertical}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan)}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.check{display:flex;gap:10px;align-items:center;font-size:14.5px}
-.err{color:#F2B8B5}.ok{color:#7FD3A6}
-.danger{background:transparent;color:#F2B8B5;border:1px solid #5a2a2a}
-.secret{font:500 16px "IBM Plex Mono",monospace;background:var(--bg);border:1px dashed var(--cyan);border-radius:10px;padding:12px 14px;user-select:all}
-.drop{border:1.5px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);transition:border-color .15s,background .15s;cursor:pointer}
-.drop.over{border-color:var(--cyan);background:rgba(127,207,224,.06);color:var(--ink)}
-.drop b{color:var(--ink)}
-.files{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
-.files li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
-.files .ic{font:600 10px "IBM Plex Mono",monospace;width:38px;height:44px;border-radius:5px;display:grid;place-items:end center;padding-bottom:6px;background:var(--cyan-soft);color:var(--cyan)}
-.files .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.files .nm small{display:block;color:var(--muted);font-size:12.5px}
-.files button{padding:6px 12px;font-size:13px}
-.split{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px;align-items:start}
-@media (max-width:960px){.split{grid-template-columns:minmax(0,1fr)}}
-</style></head><body>
-<header><div class="wrap"><h1>Automagic · Admin</h1><form method="post" action="/admin/logout"><button class="ghost" type="submit">Sign out</button></form></div></header>
-<main class="wrap"><nav class="tabs" aria-label="Admin"><a href="/admin">Analytics</a><a href="/admin/clients" class="{% block navc %}{% endblock %}">Clients</a><a href="/admin/consultants" class="{% block navp %}{% endblock %}">Consultants</a><a href="/portal/" target="_blank">Client portal</a></nav>
-"""
-ADMIN_FOOT = "</main></body></html>"
+ADMIN_FOOT = U.FOOT
 
-ADMIN_LIST = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
+ADMIN_LIST = U.head("clients", "Clients") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Clients</h2><a class="btn" href="/admin/clients/new">Add client</a></div>
 <p class="mono" style="margin:10px 0 16px;text-transform:none;letter-spacing:0">{% for s in statuses %}{{ s }}: {{ counts[s] }}{% if not loop.last %} · {% endif %}{% endfor %}{% if not stripe %} · Stripe not connected (set STRIPE_SECRET_KEY){% endif %}</p>
 {% if rows %}<div class="tw"><table><thead><tr><th>Company</th><th>Contact</th><th>Status</th><th>Engagement</th><th>Consultant</th><th>Portal</th><th>Files</th><th>Last login (UTC)</th></tr></thead><tbody>
@@ -718,7 +674,7 @@ ADMIN_LIST = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
 </tbody></table></div>{% else %}<div class="card empty">No clients yet. Add your first client to give them a portal login and share documents.</div>{% endif %}
 </section>""" + ADMIN_FOOT
 
-ADMIN_CLIENT = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
+ADMIN_CLIENT = U.head("clients", "Client") + """
 <section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company or 'New client' }}</h2>
 {% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
 {% if request.args.get('stripe_error') %}<p class="err" role="alert">Stripe: {{ request.args.get('stripe_error') }}</p>{% endif %}
@@ -805,7 +761,7 @@ ADMIN_CLIENT = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
 })();
 </script>""" + ADMIN_FOOT
 
-ADMIN_CONSULTANTS = ADMIN_HEAD.replace("{% block navp %}{% endblock %}", "on") + """
+ADMIN_CONSULTANTS = U.head("consultants", "Consultants") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Consultants</h2><a class="btn" href="/admin/consultants/new">Add consultant</a></div>
 <p class="empty" style="margin:10px 0 16px">Each client sees their assigned consultant under Your Consultant. Clients with no consultant assigned see the default, the first one listed.</p>
 {% if note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
@@ -814,7 +770,7 @@ ADMIN_CONSULTANTS = ADMIN_HEAD.replace("{% block navp %}{% endblock %}", "on") +
 </tbody></table></div>{% else %}<div class="card empty">No consultants yet. Clients see the built-in Automagic profile until you add one.</div>{% endif %}
 </section>""" + ADMIN_FOOT
 
-ADMIN_CONSULTANT = ADMIN_HEAD.replace("{% block navp %}{% endblock %}", "on") + """
+ADMIN_CONSULTANT = U.head("consultants", "Consultant") + """
 <section><p><a href="/admin/consultants">← All consultants</a></p><h2>{{ c.name or 'New consultant' }}{% if is_default %} <span class="pill">Default</span>{% endif %}</h2>
 {% if pid %}<p class="empty" style="margin:0 0 16px">Assigned to {{ nclients }} client{{ '' if nclients == 1 else 's' }}{% if is_default %}, and shown to every client with no consultant assigned{% endif %}.</p>{% endif %}
 {% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
