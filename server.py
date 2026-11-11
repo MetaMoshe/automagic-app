@@ -27,7 +27,36 @@ PUBLIC = os.path.join(ROOT, "public")
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(ROOT, "data"))
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
-SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+
+
+def _secret_key():
+    """SECRET_KEY from the environment, else one stored on the data disk.
+
+    A key generated per process would differ between gunicorn workers and change on every
+    deploy, signing people out at random. The stored key is shared and survives deploys."""
+    k = os.environ.get("SECRET_KEY", "").strip()
+    if k:
+        return k
+    path = os.path.join(DATA_DIR, ".secret_key")
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(secrets.token_hex(32))
+    except FileExistsError:
+        pass
+    except OSError:
+        return secrets.token_hex(32)
+    for _ in range(20):  # another worker may be mid-write
+        with open(path) as f:
+            k = f.read().strip()
+        if k:
+            return k
+        time.sleep(0.05)
+    return secrets.token_hex(32)
+
+
+SECRET_KEY = _secret_key()
 
 app = Flask(__name__, static_folder=None)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -289,7 +318,7 @@ def admin_login():
             session.clear()
             session.permanent = True
             session["admin"] = True
-            return redirect("/admin/inbox")
+            return redirect("/admin")
         else:
             _fails[key].append(time.time())
             err = "That password is not right."

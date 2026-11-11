@@ -146,8 +146,8 @@ def ico(name, size=18):
 
 # (group, key, label, href, badge key)
 MENU = [
-    ("Workspace", "inbox", "Inbox", "/admin/inbox", "inbox"),
     ("Workspace", "chart", "Analytics", "/admin", None),
+    ("Workspace", "inbox", "Inbox", "/admin/inbox", "inbox"),
     ("Sales", "leads", "Lead CRM", "/admin/leads", "leads"),
     ("Delivery", "clients", "Clients", "/admin/clients", "clients"),
     ("Delivery", "consultants", "Consultants", "/admin/consultants", None),
@@ -173,7 +173,7 @@ def head(active, title):
     return ("""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>""" + title + """ · Automagic Admin</title><meta name="robots" content="noindex">""" + FONTS + "<style>" + BASE_CSS + ADMIN_CSS + """</style></head><body>
 <div class="adm"><aside class="side" id="side">
- <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><a class="brand" href="/admin/inbox"><span><img src="/brand/wordmark-light.svg" alt="Automagic" width="120" height="25" style="display:block;height:22px;width:auto"><small style="margin-top:4px">Admin</small></span></a>
+ <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><a class="brand" href="/admin"><span><img src="/brand/wordmark-light.svg" alt="Automagic" width="120" height="25" style="display:block;height:22px;width:auto"><small style="margin-top:4px">Admin</small></span></a>
  <button class="ghost menu-btn" type="button" aria-expanded="false" aria-controls="side-nav" onclick="var s=document.getElementById('side');s.classList.toggle('open');this.setAttribute('aria-expanded',s.classList.contains('open'))">""" + ico("menu", 16) + """Menu</button></div>
  <nav class="nav" id="side-nav" aria-label="Admin">""" + _menu(active) + """
   <div class="foot">
