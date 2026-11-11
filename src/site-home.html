@@ -67,6 +67,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 h1{font-weight:600;font-size:clamp(40px,5.6vw,72px);line-height:1;letter-spacing:-.035em}
 h1 .hl{position:relative;display:inline-block;white-space:nowrap}
 h1 .tw-ghost{visibility:hidden;padding:0 .12em}
+h1 .tw-ghost::before{content:attr(data-t)}
 h1 .tw-out{position:absolute;left:0;top:0;bottom:0;white-space:nowrap;color:var(--on-cyan);background:var(--cyan);padding:0 .12em;min-width:.5em}
 h1 .tw-out::after{content:"";display:inline-block;width:.09em;height:.82em;margin-left:.06em;vertical-align:-.06em;background:var(--on-cyan);animation:caret 1s steps(1) infinite}
 h1 .tw-out.typing::after{animation:none}
@@ -258,7 +259,7 @@ footer a:hover{color:var(--ink)}
   <div class="wrap">
     <div class="hero-copy">
       <span class="label">AI transformation agency</span>
-      <h1>We build the AI that works inside <span class="hl" aria-label="Your Business"><span class="tw-ghost" aria-hidden="true">Your Business</span><span class="tw-out done" id="tw" aria-hidden="true">Your Business</span></span></h1>
+      <h1>We build the AI that works inside <span class="hl" aria-label="Your Business"><span class="tw-ghost" aria-hidden="true" data-t="Your Business"></span><span class="tw-out done" id="tw" aria-hidden="true">Your Business</span></span></h1>
       <p class="lede">Automagic finds where AI creates a real operational advantage in your business, then builds it, embeds it in the systems you already run and keeps it running. One partner, from the first interview to tools your people use every day.</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="https://cal.com/moshe-david/ai-transformation-discovery?overlayCalendar=true" target="_blank" rel="noopener" data-am-book>Book a discovery call <span class="arr" aria-hidden="true">→</span></a>
