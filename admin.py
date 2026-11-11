@@ -156,6 +156,32 @@ def inbox():
     return render_template_string(INBOX, items=items[:200], kind=kind, types=INBOX_TYPES, note=request.args.get("note", ""))
 
 
+@bp.route("/admin/inbox/compose", methods=["GET", "POST"])
+def inbox_compose():
+    r = guard()
+    if r:
+        if request.method == "POST":
+            abort(401)
+        return r
+    clients = [{"id": i, "company": co, "name": n, "portal": bool(p), "con": P.consultant_for(P.client_row(i))["name"]}
+               for i, co, n, p in S.q("SELECT id, company, contact_name, portal_enabled FROM clients ORDER BY company")]
+    f, err = request.form, ""
+    sel = request.values.get("client_id", type=int)
+    if request.method == "POST":
+        body = S.clip(f.get("body"), 10000).strip()
+        c = P.client_row(sel) if sel else None
+        if not c:
+            err = "Choose a client."
+        elif not body:
+            err = "Write a message first."
+        else:
+            author = S.clip(f.get("author"), 200) or P.consultant_for(c)["name"]
+            P.add_message(sel, "consultant", author, S.clip(f.get("subject"), 200), body)
+            P.commit()
+            return redirect(f"/admin/clients/{sel}/inbox?sent=1#latest")
+    return render_template_string(COMPOSE, clients=clients, sel=sel, err=err, f=f)
+
+
 @bp.post("/admin/inbox/read")
 def inbox_read():
     r = guard()
@@ -340,11 +366,29 @@ FOOT = U.FOOT
 
 INBOX = U.head("inbox", "Inbox") + """
 <div class="ph"><div><h2>Inbox</h2><p>Client messages, Book a Call requests, files your clients upload and portfolio sign-ups, newest first.</p></div>
-{% if admin_nav.inbox %}<form method="post" action="/admin/inbox/read"><button class="ghost" type="submit">Mark all as read</button></form>{% endif %}</div>
+<div class="row">{% if admin_nav.inbox %}<form method="post" action="/admin/inbox/read"><button class="ghost" type="submit">Mark all as read</button></form>{% endif %}<a class="btn" href="/admin/inbox/compose">""" + U.ico("sent", 16) + """ Compose</a></div></div>
 <nav class="chips" aria-label="Filter"><a href="/admin/inbox" class="{{ 'on' if not kind }}">All</a>{% for k, label in types.items() %}<a href="/admin/inbox?type={{ k }}" class="{{ 'on' if kind == k }}">{{ label }}</a>{% endfor %}</nav>
 {% if items %}<ul class="feed">{% for i in items %}<li class="{{ 'un' if i.unread }}"><a class="fi" href="{{ i.href }}"><span class="ico">{{ ico(i.icon)|safe }}</span><span class="tx"><b>{{ i.title }}</b><span>{{ i.sub }}</span></span><time datetime="{{ i.at }}">{{ i.at[:16]|replace('T',' ') }}</time></a></li>{% endfor %}</ul>
 {% else %}<div class="card empty">Nothing here yet. New client messages, Book a Call requests, client uploads and portfolio sign-ups will appear here.</div>{% endif %}
 <p class="mono" style="margin-top:14px;text-transform:none;letter-spacing:0">Times are UTC.</p>
+""" + FOOT
+
+COMPOSE = U.head("inbox", "New message") + """
+<p><a href="/admin/inbox">← Inbox</a></p>
+<div class="ph"><div><h2>New message</h2><p>Sent to the client's portal Inbox and kept in their client record.</p></div></div>
+{% if err %}<p class="err" role="alert">{{ err }}</p>{% endif %}
+{% if clients %}<form class="card" method="post" style="max-width:760px;display:grid;gap:14px">
+ <div><label class="f" for="client_id">To</label><select id="client_id" name="client_id" required><option value="">Choose a client…</option>
+  {% for c in clients %}<option value="{{ c.id }}" data-con="{{ c.con }}"{% if sel == c.id %} selected{% endif %}>{{ c.company }}{% if c.name %} · {{ c.name }}{% endif %}{% if not c.portal %} (portal off){% endif %}</option>{% endfor %}</select></div>
+ <div><label class="f" for="author">From</label><input type="text" id="author" name="author" value="{{ f.get('author', '') }}" placeholder="The client's consultant"></div>
+ <div><label class="f" for="subject">Subject (optional)</label><input type="text" id="subject" name="subject" maxlength="200" value="{{ f.get('subject', '') }}"></div>
+ <div><label class="f" for="body">Message</label><textarea id="body" name="body" required style="min-height:220px">{{ f.get('body', '') }}</textarea></div>
+ <div class="row"><button type="submit">Send to client</button><a class="btn ghost" href="/admin/inbox">Cancel</a></div>
+</form>
+<script>(function(){var s=document.getElementById('client_id'),a=document.getElementById('author');
+function fill(){var o=s.options[s.selectedIndex];if(o&&o.dataset.con&&(!a.value||a.dataset.auto==='1')){a.value=o.dataset.con;a.dataset.auto='1'}}
+a.addEventListener('input',function(){a.dataset.auto='0'});s.addEventListener('change',fill);fill();})();</script>
+{% else %}<div class="card empty">No clients yet. Add a client first, then you can message them.</div>{% endif %}
 """ + FOOT
 
 ANALYTICS = U.head("chart", "Analytics") + """
