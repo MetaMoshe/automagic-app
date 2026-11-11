@@ -972,6 +972,10 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .ov{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;margin-top:20px;align-items:start}
 .ov-main{display:grid;gap:20px;min-width:0}
 @media (max-width:1060px){.ov{grid-template-columns:minmax(0,1fr)}.ov-side{order:-1}}
+.intro{border-color:rgba(127,211,228,.35);background:linear-gradient(160deg,rgba(127,211,228,.10),var(--surface) 65%)}
+.intro h3{font-size:clamp(20px,2.2vw,24px);margin:10px 0 8px}.intro>p{margin:0;color:var(--muted);line-height:1.6;max-width:62ch}
+.isteps{margin:16px 0 0;padding-left:20px;display:grid;gap:8px;color:var(--muted);line-height:1.55}.isteps b{color:var(--ink);font-weight:600}
+.iact{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
 .cnote{border-color:rgba(127,211,228,.35);background:linear-gradient(160deg,rgba(127,211,228,.08),var(--surface) 60%)}
 .cnote p{margin:10px 0 0;white-space:pre-line;font-size:16px;line-height:1.6}
 .cnote small{display:block;margin-top:10px;color:var(--faint);font-size:13px}
@@ -1076,10 +1080,20 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
   {% if c.logo %}<div class="clogo"><img src="/portal/logo?v={{ c.logo }}" alt="{{ c.company }} logo"></div>{% endif %}</div>
   <div class="chips">{% if c.engagement %}<span class="chip"><b>{{ c.engagement }}</b></span>{% endif %}<span class="chip{% if c.status == 'Active' %} ok{% endif %}">{{ c.status or 'Active' }}</span></div>
   {% set cur = phases.index(c.phase) if c.phase in phases else 0 %}<ol class="phases" aria-label="Project progress">{% for ph in phases %}<li class="{{ 'done' if loop.index0 < cur else 'now' if loop.index0 == cur else '' }}"><a href="/portal/how-we-work{{ phase_links[ph] }}"{% if loop.index0 == cur %} aria-current="step"{% endif %}><span>{% if loop.first %}1 · {% endif %}{{ ph }}</span></a></li>{% endfor %}</ol>
-  <p class="hww"><a href="/portal/how-we-work">{% if cur == 0 %}Start here: an introduction to how we work{% else %}How we work{% endif %} →</a></p>
+  {% if cur > 0 %}<p class="hww"><a href="/portal/how-we-work">How we work →</a></p>{% endif %}
  </div>
  <div class="ov">
   <div class="ov-main">
+   {% if cur == 0 %}<div class="card intro"><span class="label">Step 1 · Start here</span>
+    <h3>Get to know how we work</h3>
+    <p>Before discovery begins, take ten minutes to see what the journey looks like: the five phases from discovery to running and evolving your AI, what we need from your team, and what you get at each step.</p>
+    <ol class="isteps">
+     <li><b>Learn how we work.</b> Our approach, the five phases in detail and how we measure the return.</li>
+     <li><b>See a real discovery report.</b> The findings, solutions and roadmap we delivered for an executive search firm, so you know exactly what discovery produces.</li>
+     <li><b>Bring your questions</b> to your first session with {{ con.name.split(' ')[0] }}.</li>
+    </ol>
+    <div class="iact"><a class="btn btn-p" href="/portal/how-we-work">How we work →</a><a class="btn btn-g" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></div>
+   </div>{% endif %}
    {% if c.consultant_note %}<div class="card cnote"><span class="label">Note from {{ con.name.split(' ')[0] }}</span><p>{{ c.consultant_note }}</p></div>{% endif %}
    <div class="card panel"><div class="hd"><h3>{{ icon('doc')|safe }}Project docs</h3>{% if legal %}<a href="#legal">View all {{ legal|length }}</a>{% endif %}</div>
     {% if legal %}<ul class="rows">{% for f in legal[:3] %}<li><span class="mini">{{ f.name|ext }}</span><span class="tx"><b>{{ f.name }}</b><span>{{ f.category or 'Document' }} · shared {{ f.at[:10] }}</span></span><a class="btn btn-g btn-s" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener">Open</a></li>{% endfor %}</ul>
