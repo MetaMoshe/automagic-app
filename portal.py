@@ -35,7 +35,8 @@ DOC_TYPES = ["Proposal", "Agreement", "Statement of work", "NDA", "Report", "Oth
 INLINE = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"}
 CLIENT_FIELDS = ["company", "website", "industry", "country", "address", "status", "engagement",
                  "contact_name", "contact_title", "contact_email", "contact_phone", "contact_linkedin",
-                 "notes", "stripe_customer_id"]
+                 "notes", "stripe_customer_id", "phase", "consultant_note"]
+PHASES = ["Discovery", "Design", "Build", "Adopt", "Run and evolve"]
 SELF_FIELDS = ["contact_name", "contact_title", "contact_phone", "contact_linkedin"]
 CONSULTANT_DEFAULT = {"name": "Moshe David", "title": "Founder, Automagic AI", "email": "hello@automagic.agency",
                       "phone": "", "linkedin": "", "cal_url": CAL_URL,
@@ -62,6 +63,12 @@ def init():
             + ", ".join(f"{k} TEXT" for k in CON_FIELDS) + ", photo TEXT)",
         ):
             S.q(sql)
+        have = None if S.DATABASE_URL else [r[1] for r in S.q("PRAGMA table_info(clients)")]
+        for col in CLIENT_FIELDS:
+            if S.DATABASE_URL:
+                S.q(f"ALTER TABLE clients ADD COLUMN IF NOT EXISTS {col} TEXT")
+            elif col not in have:
+                S.q(f"ALTER TABLE clients ADD COLUMN {col} TEXT")
         if S.DATABASE_URL:
             S.q("ALTER TABLE clients ADD COLUMN IF NOT EXISTS consultant_id INTEGER")
         elif "consultant_id" not in [r[1] for r in S.q("PRAGMA table_info(clients)")]:
@@ -295,7 +302,8 @@ def admin_client(cid=None):
     err, note, new_pw = "", request.args.get("saved") and "Saved.", ""
     if request.method == "POST":
         f = request.form
-        vals = {k: S.clip(f.get(k), 4000 if k in ("notes", "address") else 300) for k in CLIENT_FIELDS}
+        vals = {k: S.clip(f.get(k), 4000 if k in ("notes", "address", "consultant_note") else 300) for k in CLIENT_FIELDS}
+        vals["phase"] = vals["phase"] if vals["phase"] in PHASES else ""
         vals["contact_email"] = vals["contact_email"].lower()
         vals["status"] = vals["status"] if vals["status"] in STATUSES else "Active"
         vals["engagement"] = vals["engagement"] if vals["engagement"] in S.TYPES else ""
@@ -344,7 +352,7 @@ def admin_client(cid=None):
     files = files_for(cid) if cid else []
     inv, inv_err = invoices(c.get("stripe_customer_id")) if cid else (None, None)
     return render_template_string(ADMIN_CLIENT, c=c, cid=cid, err=err, note=note, new_pw=new_pw, files=files,
-                                  statuses=STATUSES, types=S.TYPES, doc_types=DOC_TYPES, stripe=bool(STRIPE_KEY),
+                                  statuses=STATUSES, types=S.TYPES, phases=PHASES, doc_types=DOC_TYPES, stripe=bool(STRIPE_KEY),
                                   inv=inv, inv_err=inv_err, login_url=request.host_url.rstrip("/") + "/login/", cons=consultants())
 
 
@@ -572,7 +580,7 @@ def portal():
         return redirect("/login/")
     inv, inv_err = invoices(c["stripe_customer_id"])
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
-    return render_template_string(PORTAL, c=c, first=first, con=consultant_for(c), legal=files_for(c["id"], "legal"),
+    return render_template_string(PORTAL, c=c, first=first, phases=PHASES, con=consultant_for(c), legal=files_for(c["id"], "legal"),
                                   drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
@@ -690,6 +698,7 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
   <div><label class="f" for="status">Status</label><select id="status" name="status">{% for s in statuses %}<option{% if c.status == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
   <div><label class="f" for="engagement">Engagement type</label><select id="engagement" name="engagement"><option value="">Not set</option>{% for t in types %}<option{% if c.engagement == t %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
   <div><label class="f" for="consultant_id">Consultant</label><select id="consultant_id" name="consultant_id"><option value="">Default{% if cons %} ({{ cons[0].name }}){% endif %}</option>{% for x in cons %}<option value="{{ x.id }}"{% if c.consultant_id == x.id %} selected{% endif %}>{{ x.name }}{% if x.title %} · {{ x.title }}{% endif %}</option>{% endfor %}</select></div>
+  <div><label class="f" for="phase">Project phase (shown in the portal)</label><select id="phase" name="phase"><option value="">Not shown</option>{% for ph in phases %}<option{% if c.phase == ph %} selected{% endif %}>{{ ph }}</option>{% endfor %}</select></div>
   <div class="full"><label class="f" for="address">Address</label><textarea id="address" name="address" style="min-height:70px">{{ c.address or '' }}</textarea></div>
  </div>
  <p class="mono" style="margin-top:22px">Main contact</p>
@@ -703,6 +712,7 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
  </div>
  <p class="mono" style="margin-top:22px">Client portal</p>
  <div class="grid">
+  <div class="full"><label class="f" for="consultant_note">Note from your consultant (shown at the top of the client's overview)</label><textarea id="consultant_note" name="consultant_note" style="min-height:80px" placeholder="e.g. Next workshop is Tuesday at 10am. Please share last quarter's order export in Your Drive.">{{ c.consultant_note or '' }}</textarea></div>
   <div class="full"><label class="check"><input type="checkbox" id="portal_enabled" name="portal_enabled" value="1"{% if c.portal_enabled %} checked{% endif %}> Portal access on</label></div>
   <div><label class="f" for="password">{% if c.password_hash %}New password (leave blank to keep){% else %}Password{% endif %}</label><input type="password" id="password" name="password" autocomplete="new-password" minlength="10"></div>
   <div style="align-self:end"><label class="check"><input type="checkbox" id="generate" name="generate" value="1"> Generate a password for me</label></div>
@@ -842,6 +852,49 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .hero{position:relative;overflow:hidden;border:1px solid var(--line-2);border-radius:14px;padding:clamp(24px,4vw,44px);background:radial-gradient(ellipse 60% 90% at 90% 0%,rgba(127,211,228,.16),transparent 65%),linear-gradient(160deg,#10202D,var(--bg-2))}
 .hero h1{font-size:clamp(32px,4.4vw,52px);font-weight:600;line-height:1.05;margin:14px 0 10px}
 .hero h1 span{color:var(--cyan)}.hero p.co{color:var(--ink);font:600 clamp(18px,2vw,22px) var(--fd);letter-spacing:-.01em;margin:-4px 0 14px}.hero p{color:var(--muted);max-width:62ch;margin:0;font-size:17px}
+/* overview */
+.hero.slim{padding:clamp(22px,3vw,32px) clamp(20px,3vw,34px)}
+.hero.slim h1{font-size:clamp(30px,3.6vw,44px);margin:12px 0 6px}
+.hero.slim p.co{margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.chip{font:500 12px var(--fm);letter-spacing:.05em;padding:5px 10px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted);background:rgba(10,16,24,.35)}
+.chip b{color:var(--ink);font-weight:500}.chip.ok{color:var(--ok);border-color:rgba(127,211,166,.4)}
+.phases{list-style:none;margin:24px 0 0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;counter-reset:ph}
+.phases li{display:grid;gap:8px;font:500 12px var(--fm);letter-spacing:.04em;color:var(--faint)}
+.phases li::before{content:"";height:6px;border-radius:3px;background:var(--line-2)}
+.phases li.done{color:var(--muted)}.phases li.done::before{background:rgba(127,211,228,.55)}
+.phases li.now{color:var(--cyan)}.phases li.now::before{background:var(--cyan);box-shadow:0 0 12px rgba(127,211,228,.55)}
+.phases li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:560px){.phases{grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}.phases li span{display:none}.phases li.now span{display:block;overflow:visible;grid-column:1}}
+.ov{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;margin-top:20px;align-items:start}
+.ov-main{display:grid;gap:20px;min-width:0}
+@media (max-width:1060px){.ov{grid-template-columns:minmax(0,1fr)}.ov-side{order:-1}}
+.cnote{border-color:rgba(127,211,228,.35);background:linear-gradient(160deg,rgba(127,211,228,.08),var(--surface) 60%)}
+.cnote p{margin:10px 0 0;white-space:pre-line;font-size:16px;line-height:1.6}
+.cnote small{display:block;margin-top:10px;color:var(--faint);font-size:13px}
+.card.panel{padding:0;overflow:hidden}
+.panel .hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.panel .hd h3{font-size:17px;font-weight:600;display:flex;align-items:center;gap:10px}.panel .hd h3 svg{color:var(--cyan)}
+.panel .hd a{font-size:13.5px;text-decoration:none;white-space:nowrap}
+.rows{list-style:none;margin:0;padding:0}
+.rows li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px 20px;border-top:1px solid var(--line)}
+.rows li:first-child{border-top:0}
+.rows .mini{width:34px;height:40px;border-radius:3px 9px 3px 3px;background:var(--surface-2);border:1px solid var(--line-2);display:grid;place-items:end center;padding-bottom:5px;font:600 8.5px var(--fm);color:var(--cyan)}
+.rows .tx{min-width:0}.rows .tx b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rows .tx span{display:block;color:var(--faint);font-size:13px}
+.rows .amt{font:600 16px var(--fd);font-variant-numeric:tabular-nums}
+.panel .none{padding:18px 20px;color:var(--muted);font-size:14.5px;margin:0}
+.panel .drop{margin:16px 20px 4px;padding:18px;font-size:14px}
+.btn-s{padding:7px 12px;font-size:13.5px}
+.cc{display:grid;gap:16px}
+.cc-h{display:grid;grid-template-columns:64px minmax(0,1fr);gap:14px;align-items:center}
+.cc-h .ph{width:64px;height:64px;border-radius:12px;font-size:26px}
+.cc-h b{display:block;font:600 18px var(--fd);letter-spacing:-.01em}.cc-h span{display:block;color:var(--cyan);font:500 11.5px var(--fm);letter-spacing:.05em;text-transform:uppercase;margin-top:3px}
+.cc-l{display:flex;gap:8px}
+.cc-l a{width:42px;height:42px;display:grid;place-items:center;border:1px solid var(--line-2);border-radius:9px;color:var(--cyan)}
+.cc-l a:hover{border-color:var(--cyan)}
+.cc .btn{justify-content:center}
+.cc .more{font-size:13.5px;text-decoration:none}
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}
 @media (max-width:700px){.tiles{grid-template-columns:minmax(0,1fr)}}
 .tile{display:grid;gap:6px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface);text-decoration:none;color:var(--ink);transition:border-color .15s}
@@ -914,14 +967,33 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  </div>
 {% endmacro %}
 <section class="view" id="v-home">
- <div class="hero"><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
- {% if c.company %}<p class="co">{{ c.company }}</p>{% endif %}
- <p>This is your private space with Automagic. Reach your consultant, find proposals and agreements, view and pay invoices, and share files with our team, all in one place.</p></div>
- <div class="ov-con"><div class="vh" style="margin:26px 0 12px"><span class="label">Your Consultant</span></div>{{ con_card() }}</div>
- <div class="tiles">
-  <a class="tile" href="#legal">{{ icon('doc', 22)|safe }}<b>Project docs</b><span>{{ legal|length }} document{{ '' if legal|length == 1 else 's' }}</span></a>
-  <a class="tile" href="#invoices">{{ icon('card', 22)|safe }}<b>Invoices</b><span>{% if inv %}{{ inv|selectattr('status','equalto','open')|list|length }} open{% else %}View and pay{% endif %}</span></a>
-  <a class="tile" href="#drive">{{ icon('drive', 22)|safe }}<b>Your Drive</b><span>{{ drive|length }} file{{ '' if drive|length == 1 else 's' }}</span></a>
+ <div class="hero slim"><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
+  {% if c.company %}<p class="co">{{ c.company }}</p>{% endif %}
+  <div class="chips">{% if c.engagement %}<span class="chip"><b>{{ c.engagement }}</b></span>{% endif %}<span class="chip{% if c.status == 'Active' %} ok{% endif %}">{{ c.status or 'Active' }}</span></div>
+  {% if c.phase in phases %}{% set cur = phases.index(c.phase) %}<ol class="phases" aria-label="Project progress">{% for ph in phases %}<li class="{{ 'done' if loop.index0 < cur else 'now' if loop.index0 == cur else '' }}"{% if loop.index0 == cur %} aria-current="step"{% endif %}><span>{{ ph }}</span></li>{% endfor %}</ol>{% endif %}
+ </div>
+ <div class="ov">
+  <div class="ov-main">
+   {% if c.consultant_note %}<div class="card cnote"><span class="label">Note from {{ con.name.split(' ')[0] }}</span><p>{{ c.consultant_note }}</p></div>{% endif %}
+   <div class="card panel"><div class="hd"><h3>{{ icon('doc')|safe }}Project docs</h3>{% if legal %}<a href="#legal">View all {{ legal|length }}</a>{% endif %}</div>
+    {% if legal %}<ul class="rows">{% for f in legal[:3] %}<li><span class="mini">{{ f.name|ext }}</span><span class="tx"><b>{{ f.name }}</b><span>{{ f.category or 'Document' }} · shared {{ f.at[:10] }}</span></span><a class="btn btn-g btn-s" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener">Open</a></li>{% endfor %}</ul>
+    {% else %}<p class="none">No documents yet. Proposals and agreements will appear here when we share them.</p>{% endif %}</div>
+   <div class="card panel"><div class="hd"><h3>{{ icon('card')|safe }}Invoices</h3><a href="#invoices">View all</a></div>
+    {% set open_inv = (inv or [])|selectattr('status','equalto','open')|list %}
+    {% if not stripe or not c.stripe_customer_id %}<p class="none">Billing isn't set up for your account yet.</p>
+    {% elif inv_err %}<p class="none">Invoices can't be loaded right now.</p>
+    {% elif open_inv %}<ul class="rows">{% for i in open_inv[:3] %}<li><span class="mini">INV</span><span class="tx"><b>{{ i.number }}</b><span>{% if i.due %}Due {{ i.due }}{% else %}Issued {{ i.created }}{% endif %}</span></span><span class="row-r" style="display:flex;gap:12px;align-items:center"><span class="amt">{{ i.amount }}</span>{% if i.url %}<a class="btn btn-p btn-s" href="{{ i.url }}" target="_blank" rel="noopener">Pay</a>{% endif %}</span></li>{% endfor %}</ul>
+    {% else %}<p class="none">You're all paid up. Nothing is due.</p>{% endif %}</div>
+   <div class="card panel"><div class="hd"><h3>{{ icon('drive')|safe }}Your Drive</h3>{% if drive %}<a href="#drive">View all {{ drive|length }}</a>{% endif %}</div>
+    <div class="drop" tabindex="0" role="button"><b>Drop files here</b> or click to share them with our team</div>
+    {% if drive %}<ul class="rows">{% for f in drive[:3] %}<li><span class="mini">{{ f.name|ext }}</span><span class="tx"><b>{{ f.name }}</b><span>{{ 'You' if f.uploaded_by == 'client' else 'Automagic' }} · {{ f.at[:10] }}</span></span><a class="btn btn-g btn-s" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener">Open</a></li>{% endfor %}</ul>{% else %}<p class="none" style="padding-top:8px">Nothing shared yet.</p>{% endif %}</div>
+  </div>
+  <aside class="ov-side"><div class="card cc"><span class="label">Your consultant</span>
+   <div class="cc-h">{% if con.photo %}<img class="ph" src="/consultant-photo/{{ con.id }}" alt="" width="64" height="64">{% else %}<div class="ph" aria-hidden="true">{{ con.name[:1] }}</div>{% endif %}<div><b>{{ con.name }}</b><span>{{ con.title }}</span></div></div>
+   <div class="cc-l">{% if con.email %}<a href="mailto:{{ con.email }}" aria-label="Email {{ con.name }}" title="{{ con.email }}">{{ icon('mail')|safe }}</a>{% endif %}{% if con.phone %}<a href="tel:{{ con.phone|replace(' ','') }}" aria-label="Call {{ con.name }}" title="{{ con.phone }}">{{ icon('phone')|safe }}</a>{% endif %}{% if con.linkedin %}<a href="{{ con.linkedin }}" target="_blank" rel="noopener" aria-label="{{ con.name }} on LinkedIn" title="LinkedIn">{{ icon('in')|safe }}</a>{% endif %}</div>
+   <a class="btn btn-p" href="{{ con.cal_url }}" target="_blank" rel="noopener">{{ icon('cal')|safe }}Book a meeting</a>
+   <a class="more" href="#consultant">About {{ con.name.split(' ')[0] }} →</a>
+  </div></aside>
  </div>
 </section>
 
@@ -952,7 +1024,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 
 <section class="view" id="v-drive" hidden>
  <div class="vh"><span class="label">Your Drive</span><h2>Share files with our team</h2><p>Upload anything we should see: data exports, briefs, templates. Up to 25 MB per file.</p></div>
- <div class="drop" id="drop" tabindex="0" role="button">{{ icon('drive', 30)|safe }}<br><b>Drop files here</b> or click to choose</div>
+ <div class="drop" tabindex="0" role="button">{{ icon('drive', 30)|safe }}<br><b>Drop files here</b> or click to choose</div>
  <input type="file" id="picker" multiple hidden>
  {% if drive %}<div class="docs">{% for f in drive %}<a class="doc" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener"><span class="fi {{ (f.name|ext)|lower }}"><i>{{ f.name|ext }}</i></span><span class="n">{{ f.name }}</span><small>{{ 'You' if f.uploaded_by == 'client' else 'Automagic' }} · {{ f.at[:10] }}</small>{% if f.uploaded_by == 'client' %}<button class="x" type="button" data-del="{{ f.id }}" aria-label="Delete {{ f.name }}">×</button>{% endif %}</a>{% endfor %}</div>
  {% else %}<div class="empty">Your drive is empty.</div>{% endif %}
@@ -992,18 +1064,20 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
     document.querySelectorAll('.side a').forEach(function(a){a.classList.toggle('on',a.dataset.v===v); if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current')});
     window.scrollTo(0,0);}
   window.addEventListener('hashchange',show); show();
-  var drop=document.getElementById('drop'), picker=document.getElementById('picker');
-  function up(files){ if(!files||!files.length) return; var fd=new FormData(); for(var i=0;i<files.length;i++) fd.append('file',files[i]);
-    drop.innerHTML='<b>Uploading…</b>';
+  var picker=document.getElementById('picker'), active=null;
+  function up(files, zone){ if(!files||!files.length) return; var fd=new FormData(); for(var i=0;i<files.length;i++) fd.append('file',files[i]);
+    zone.innerHTML='<b>Uploading…</b>';
     fetch('/portal/api/drive',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json()})
-     .then(function(j){ location.hash='#drive'; if(j.errors&&j.errors.length){ drop.innerHTML='<b>'+j.errors.join('<br>').replace(/</g,'&lt;')+'</b>'; setTimeout(function(){location.reload()},2500);} else location.reload(); })
-     .catch(function(){ drop.innerHTML='<b>Upload failed.</b> Please try again.'; });}
-  drop.addEventListener('click',function(){picker.click()});
-  drop.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();picker.click()}});
-  drop.addEventListener('dragover',function(e){e.preventDefault();drop.classList.add('over')});
-  drop.addEventListener('dragleave',function(){drop.classList.remove('over')});
-  drop.addEventListener('drop',function(e){e.preventDefault();drop.classList.remove('over');up(e.dataTransfer.files)});
-  picker.addEventListener('change',function(){up(picker.files);picker.value=''});
+     .then(function(j){ if(j.errors&&j.errors.length){ zone.innerHTML='<b>'+j.errors.join('<br>').replace(/</g,'&lt;')+'</b>'; setTimeout(function(){location.reload()},2500);} else location.reload(); })
+     .catch(function(){ zone.innerHTML='<b>Upload failed.</b> Please try again.'; });}
+  document.querySelectorAll('.drop').forEach(function(drop){
+    drop.addEventListener('click',function(){active=drop;picker.click()});
+    drop.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();active=drop;picker.click()}});
+    drop.addEventListener('dragover',function(e){e.preventDefault();drop.classList.add('over')});
+    drop.addEventListener('dragleave',function(){drop.classList.remove('over')});
+    drop.addEventListener('drop',function(e){e.preventDefault();drop.classList.remove('over');up(e.dataTransfer.files,drop)});
+  });
+  picker.addEventListener('change',function(){up(picker.files,active||document.querySelector('.drop'));picker.value=''});
   document.querySelectorAll('.x[data-del]').forEach(function(b){b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();
     if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='Delete?';return}
     fetch('/portal/api/drive/'+b.dataset.del+'/delete',{method:'POST',credentials:'same-origin'}).then(function(){location.reload()});});});

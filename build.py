@@ -222,7 +222,7 @@ def build():
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")
         print(f"built {dest.relative_to(ROOT)}")
-    # Public homepage (automagic.agency): its own nav, plus the Book a Call pop-up and the visit beacon.
+    # Public homepage (automagic.consulting): its own nav, plus the Book a Call pop-up and the visit beacon.
     html = (SRC / "site-home.html").read_text(encoding="utf-8")
     html = html.replace("</body>", BOOK + BEACON + "</body>", 1)
     (OUT / "index.html").write_text(html, encoding="utf-8")
