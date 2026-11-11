@@ -11,10 +11,11 @@ import os, pathlib, re, shutil
 ROOT = pathlib.Path(__file__).parent
 SRC, OUT = ROOT / "src", ROOT / "public"
 
-# slug, source file, nav label, artifact id (for link rewriting), blurb
+# slug, source file, nav label, artifact id (for link rewriting; None = not an artifact), blurb
 PAGES = [
-    ("", "portfolio.html", "Portfolio", "Xwe1YVfH51s8fDtv4XzFEv",
-     "Every engagement at a glance"),
+    ("", "home.html", "Portfolio", None, "Featured case studies and every client at a glance"),
+    ("clients", "portfolio.html", "Clients", "Xwe1YVfH51s8fDtv4XzFEv",
+     "The full profile of every engagement"),
     ("hunter", "hunter.html", "Hunter Executive", "TLYDnbsNc4ojm2kMQSThz9",
      "Executive search · discovery findings and the PESA platform"),
     ("zugi", "zugi.html", "Zugi.ai", "H8UgAvWC9srxh36TgemtzZ",
@@ -22,6 +23,7 @@ PAGES = [
     ("revscale", "revscale.html", "Revscale", "Aj6gQzm2QS64LarUQjnyr1",
      "Franchising · AI agent workforce and FranchiseHub"),
 ]
+CASES = ("hunter", "zugi", "revscale")
 
 def href(slug):
     return "/" if not slug else f"/{slug}/"
@@ -33,19 +35,20 @@ LOGO = ('<svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="a
 
 CSS = """<style id="am-nav-css">
 :root{--am-nav-h:56px}
-html{scroll-padding-top:calc(var(--am-nav-h) + 24px)}
+html{scroll-padding-top:calc(var(--am-nav-h) + 24px)!important}
 .am-nav{position:sticky;top:0;z-index:40;background:var(--navy-deep,#2C3C53);color:#F4F7FA;border-bottom:1px solid rgba(255,255,255,.12);padding-top:env(safe-area-inset-top,0px)}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .am-nav{background:#0B1018}}
 :root[data-theme="dark"] .am-nav{background:#0B1018}
 .am-nav-in{max-width:1180px;margin:0 auto;height:var(--am-nav-h);display:flex;align-items:center;gap:20px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .am-home{display:flex;align-items:center;gap:9px;color:inherit;text-decoration:none;font-family:var(--font-display);font-weight:600;font-size:16px;white-space:nowrap;flex:none}
 .am-home svg{width:24px;height:24px}
+.am-wm{display:block;height:22px;width:auto}
 .am-links{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;margin-left:auto;min-width:0}
 .am-links::-webkit-scrollbar{display:none}
 .am-links a{font-family:var(--font-body);font-size:14px;font-weight:500;color:#C5D0DC;text-decoration:none;padding:7px 12px;border-radius:999px;white-space:nowrap}
 .am-links a:hover{color:#fff;background:rgba(255,255,255,.08)}
 .am-links a[aria-current="page"]{color:#1F2B3D;background:#B6E6F0}
-@media (max-width:640px){.am-home span{display:none}.am-nav-in{gap:10px}.am-links a{font-size:13px;padding:6px 10px}}
+@media (max-width:640px){.am-home span{display:none}.am-wm{height:18px}.am-nav-in{gap:10px}.am-links a{font-size:13px;padding:6px 10px}}
 .band .topbar .brand{display:none}
 .band .topbar{justify-content:flex-start;padding-block:18px 0}
 @media (max-width:640px){.am-links a{padding:6px 8px}}
@@ -53,8 +56,7 @@ html{scroll-padding-top:calc(var(--am-nav-h) + 24px)}
 .proj{scroll-margin-top:calc(var(--am-nav-h) + 24px)!important}
 .am-more{border-top:1px solid var(--line);padding-block:40px 8px}
 .am-more h2{font-family:var(--font-display);font-size:22px;margin:0 0 16px;color:var(--navy-deep)}
-.am-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-@media (max-width:820px){.am-cards{grid-template-columns:minmax(0,1fr)}}
+.am-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .am-card{display:block;text-decoration:none;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px 18px;min-width:0}
 .am-card:hover{border-color:var(--navy)}
 .am-card b{display:block;font-family:var(--font-display);font-size:17px;color:var(--navy-deep);margin-bottom:4px}
@@ -64,22 +66,32 @@ html{scroll-padding-top:calc(var(--am-nav-h) + 24px)}
 </style>"""
 
 
+WORDMARK = SRC / "brand" / "wordmark-light.svg"
+
+
+def logo():
+    if WORDMARK.exists():
+        return '<img class="am-wm" src="/brand/wordmark-light.svg" alt="Automagic">'
+    return LOGO + "<span>Automagic AI</span>"
+
+
 def nav(active):
     links = "".join(
         '<a href="%s"%s>%s</a>' % (href(s), ' aria-current="page"' if s == active else '', label)
         for s, _, label, _, _ in PAGES)
     return (f'<nav class="am-nav" aria-label="Site"><div class="am-nav-in">'
-            f'<a class="am-home" href="/">{LOGO}<span>Automagic AI</span></a>'
+            f'<a class="am-home" href="/" aria-label="Automagic portfolio home">{logo()}</a>'
             f'<div class="am-links">{links}</div></div></nav>')
 
 
 def more(active):
+    picks = [p for p in PAGES if p[0] in CASES and p[0] != active]
+    picks += [p for p in PAGES if p[0] in ("", "clients") and p[0] != active]
     cards = "".join(
         f'<a class="am-card" href="{href(s)}"><b>{label}</b><span>{blurb}</span>'
-        f'<i>{"Back to portfolio" if not s else "Read the case study"} →</i></a>'
-        for s, _, label, _, blurb in PAGES if s != active and (s or active))
-    title = "More case studies" if not active else "Keep exploring"
-    return (f'<div class="wrap am-more"><h2>{title}</h2><div class="am-cards">{cards}</div>'
+        f'<i>{"Read the case study" if s in CASES else "Open"} →</i></a>'
+        for s, _, label, _, blurb in picks)
+    return (f'<div class="wrap am-more"><h2>Keep exploring</h2><div class="am-cards">{cards}</div>'
             f'<p class="am-legal">Confidential. Shared under the <a href="/terms/">Terms of Access</a>; '
             f'please do not copy or share.</p></div>')
 
@@ -133,6 +145,21 @@ def clean_hunter(html):
     return html
 
 
+def dark(html):
+    """The whole site runs in the artifacts' dark theme."""
+    html, n = re.subn(r"<html(?: lang=\"en\")?>", '<html lang="en" data-theme="dark">', html, count=1)
+    assert n == 1
+    return html
+
+
+def portfolio_data():
+    """Client data (CLIENTS, TYPES, SIZES, FLAGS, flagFor) from the portfolio artifact, for the homepage."""
+    src = (SRC / "portfolio.html").read_text(encoding="utf-8")
+    m = re.search(r"(var SERVICES=.*?\n\];)\n\n\(function", src, re.S)
+    assert m, "portfolio data block not found"
+    return m.group(1)
+
+
 # Sends visitors who have not accepted the terms to the cover page first.
 GATE = ("<script>try{if(!localStorage.getItem('am-access'))location.replace('/welcome/?next='"
         "+encodeURIComponent(location.pathname+location.search+location.hash))}catch(e){}</script>")
@@ -145,34 +172,43 @@ def build():
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir()
-    ids = {aid: href(s) for s, _, _, aid, _ in PAGES}
-    for slug, src, label, _, _ in PAGES:
+    ids = {aid: href(s) for s, _, _, aid, _ in PAGES if aid}
+    data = portfolio_data()
+    for slug, src, label, aid, _ in PAGES:
         html = (SRC / src).read_text(encoding="utf-8")
-        # The artifact puts <title> inside <body>; move it into <head>.
-        m = re.search(r"<title>.*?</title>", html, re.S)
-        title = m.group(0) if m else f"<title>{label} · Automagic AI</title>"
-        if m:
-            html = html.replace(title, "", 1)
+        if aid:
+            # The artifact puts <title> inside <body>; move it into <head>.
+            m = re.search(r"<title>.*?</title>", html, re.S)
+            title = m.group(0) if m else f"<title>{label} · Automagic AI</title>"
+            if m:
+                html = html.replace(title, "", 1)
+            html = html.replace("</head>", title + "</head>", 1)
+        html = dark(html)
         html = html.replace("<head>", "<head>" + GATE, 1)
-        html = html.replace("</head>", title + CSS + "</head>", 1)
+        html = html.replace("</head>", CSS + "</head>", 1)
         if slug == "hunter":
             html = clean_hunter(html)
-        html = html.replace("<body>", "<body>" + nav(slug), 1)
+        html = re.sub(r"<body>", lambda m: "<body>" + nav(slug), html, count=1)
+        html = html.replace("/*%%PORTFOLIO_DATA%%*/", data)
         # Cross-links: claude.ai artifact URLs -> in-site pages, opened in place.
-        for aid, path in ids.items():
-            html = html.replace(f"https://claude.ai/artifact/{aid}", path)
+        for a, path in ids.items():
+            html = html.replace(f"https://claude.ai/artifact/{a}", path)
         html = html.replace(
             """href="'+esc(c.link.href)+'" target="_blank" rel="noopener">""",
             """href="'+esc(c.link.href)+'"'+(/^\\//.test(c.link.href)?'':' target="_blank" rel="noopener"')+'>""")
-        # "More case studies" strip just above the page footer.
-        html = html.replace('<footer><div class="wrap">', more(slug) + '<footer><div class="wrap">', 1)
+        if aid:
+            # "Keep exploring" strip just above the page footer.
+            html = html.replace('<footer><div class="wrap">', more(slug) + '<footer><div class="wrap">', 1)
         dest = OUT / slug / "index.html" if slug else OUT / "index.html"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")
         print(f"built {dest.relative_to(ROOT)} ({len(html)//1024} KB)")
+    if WORDMARK.exists():
+        (OUT / "brand").mkdir(exist_ok=True)
+        shutil.copy(WORDMARK, OUT / "brand" / WORDMARK.name)
     endpoint = os.environ.get("FORM_ENDPOINT", "").strip()
     for slug, src in STATIC:
-        html = (SRC / src).read_text(encoding="utf-8").replace("%%FORM_ENDPOINT%%", endpoint)
+        html = dark((SRC / src).read_text(encoding="utf-8").replace("%%FORM_ENDPOINT%%", endpoint))
         dest = OUT / slug / "index.html"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")

@@ -1,0 +1,798 @@
+<!doctype html><html lang="en" data-theme="dark"><head><script>try{if(!localStorage.getItem('am-access'))location.replace('/welcome/?next='+encodeURIComponent(location.pathname+location.search+location.hash))}catch(e){}</script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><title>Automagic Client Portfolio</title><style id="am-nav-css">
+:root{--am-nav-h:56px}
+html{scroll-padding-top:calc(var(--am-nav-h) + 24px)!important}
+.am-nav{position:sticky;top:0;z-index:40;background:var(--navy-deep,#2C3C53);color:#F4F7FA;border-bottom:1px solid rgba(255,255,255,.12);padding-top:env(safe-area-inset-top,0px)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .am-nav{background:#0B1018}}
+:root[data-theme="dark"] .am-nav{background:#0B1018}
+.am-nav-in{max-width:1180px;margin:0 auto;height:var(--am-nav-h);display:flex;align-items:center;gap:20px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.am-home{display:flex;align-items:center;gap:9px;color:inherit;text-decoration:none;font-family:var(--font-display);font-weight:600;font-size:16px;white-space:nowrap;flex:none}
+.am-home svg{width:24px;height:24px}
+.am-wm{display:block;height:22px;width:auto}
+.am-links{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;margin-left:auto;min-width:0}
+.am-links::-webkit-scrollbar{display:none}
+.am-links a{font-family:var(--font-body);font-size:14px;font-weight:500;color:#C5D0DC;text-decoration:none;padding:7px 12px;border-radius:999px;white-space:nowrap}
+.am-links a:hover{color:#fff;background:rgba(255,255,255,.08)}
+.am-links a[aria-current="page"]{color:#1F2B3D;background:#B6E6F0}
+@media (max-width:640px){.am-home span{display:none}.am-wm{height:18px}.am-nav-in{gap:10px}.am-links a{font-size:13px;padding:6px 10px}}
+.band .topbar .brand{display:none}
+.band .topbar{justify-content:flex-start;padding-block:18px 0}
+@media (max-width:640px){.am-links a{padding:6px 8px}}
+.rail{top:calc(var(--am-nav-h) + 24px)!important;max-height:calc(100vh - var(--am-nav-h) - 48px)!important}
+.proj{scroll-margin-top:calc(var(--am-nav-h) + 24px)!important}
+.am-more{border-top:1px solid var(--line);padding-block:40px 8px}
+.am-more h2{font-family:var(--font-display);font-size:22px;margin:0 0 16px;color:var(--navy-deep)}
+.am-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.am-card{display:block;text-decoration:none;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px 18px;min-width:0}
+.am-card:hover{border-color:var(--navy)}
+.am-card b{display:block;font-family:var(--font-display);font-size:17px;color:var(--navy-deep);margin-bottom:4px}
+.am-card span{font-size:13.5px;color:var(--muted);line-height:1.45}
+.am-legal{font-size:13px;color:var(--muted);margin:18px 0 0}.am-legal a{color:var(--cyan-ink)}
+.am-card i{font-style:normal;display:block;margin-top:10px;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-ink)}
+</style></head><body><nav class="am-nav" aria-label="Site"><div class="am-nav-in"><a class="am-home" href="/" aria-label="Automagic portfolio home"><svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="amlg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C8CED4"/><stop offset="1" stop-color="#B6E6F0"/></linearGradient></defs><path d="M31 9.5A15 15 0 1 0 31 30.5" fill="none" stroke="url(#amlg)" stroke-width="6" stroke-linecap="square"/><rect x="31" y="5" width="5" height="5" fill="#B6E6F0"/><rect x="31" y="30" width="5" height="5" fill="#C8CED4"/></svg><span>Automagic AI</span></a><div class="am-links"><a href="/">Portfolio</a><a href="/clients/" aria-current="page">Clients</a><a href="/hunter/">Hunter Executive</a><a href="/zugi/">Zugi.ai</a><a href="/revscale/">Revscale</a></div></div></nav>
+
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+
+/* Layout: a branded consulting report. Navy cover band, sticky contents rail on wide screens, one reading column, figures and tables set off on white panels. */
+:root{
+  --bg:#FBFBFB; --surface:#FFFFFF; --ink:#1F2B3D; --muted:#5B687B; --line:#E1E5EA;
+  --navy:#3C4F6A; --navy-deep:#2C3C53; --slate:#B4BAC4; --mist:#C8CED4;
+  --cyan:#B6E6F0; --cyan-soft:#E3F5F9; --cyan-ink:#2D6F80; --amber:#8A5300; --amber-soft:#FBEBD0; --green:#1F7A4D; --green-soft:#E3F4EA; --green-band:#7FD3A6;
+  --band:#3C4F6A; --band-ink:#F4F7FA; --band-muted:#C5D0DC;
+  --font-display:"Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-body:"Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0F151E; --surface:#161F2B; --ink:#E5EBF2; --muted:#9AA8B9; --line:#263243;
+  --navy:#A9BEDA; --navy-deep:#C9D6E8; --slate:#4B5768; --mist:#344052;
+  --cyan:#7FCFE0; --cyan-soft:#16303A; --cyan-ink:#8FD8E8; --amber:#F2C27A; --amber-soft:#3A2A12; --green:#7FD3A6; --green-soft:#173326; --green-band:#7FD3A6;
+  --band:#18263A; --band-ink:#EEF3F8; --band-muted:#A5B3C4; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0F151E; --surface:#161F2B; --ink:#E5EBF2; --muted:#9AA8B9; --line:#263243;
+  --navy:#A9BEDA; --navy-deep:#C9D6E8; --slate:#4B5768; --mist:#344052;
+  --cyan:#7FCFE0; --cyan-soft:#16303A; --cyan-ink:#8FD8E8; --amber:#F2C27A; --amber-soft:#3A2A12; --green:#7FD3A6; --green-soft:#173326; --green-band:#7FD3A6;
+  --band:#18263A; --band-ink:#EEF3F8; --band-muted:#A5B3C4; color-scheme:dark }
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:3px}
+
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+
+/* top bar + cover */
+.band{background:var(--band);color:var(--band-ink);position:relative;overflow:hidden}
+.band::after{content:"";position:absolute;right:-120px;top:-140px;width:520px;height:520px;border-radius:50%;
+  border:56px solid transparent;border-top-color:rgba(182,230,240,.16);border-right-color:rgba(182,230,240,.10);transform:rotate(18deg);pointer-events:none}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-weight:600;font-size:19px;letter-spacing:-.01em;text-decoration:none}
+.brand svg{width:30px;height:30px}
+.crumb{font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--band-muted)}
+.cover{padding-block:56px 64px;position:relative;z-index:1}
+.kicker{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan);margin:0 0 18px}
+.kicker::before{content:"";width:8px;height:8px;background:var(--cyan)}
+.cover h1{font-family:var(--font-display);font-weight:600;font-size:clamp(34px,5.4vw,60px);line-height:1.04;letter-spacing:-.025em;margin:0 0 18px;max-width:21ch;text-wrap:balance}
+.cover .lede{font-size:clamp(17px,1.6vw,19px);line-height:1.55;color:var(--band-muted);max-width:60ch;margin:0 0 34px}
+.meta{display:flex;flex-wrap:wrap;gap:10px 28px;font-size:14px;color:var(--band-muted);margin:0 0 40px}
+.meta b{color:var(--band-ink);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.14);border-radius:12px;overflow:hidden;max-width:880px}
+.stat{background:var(--band);padding:20px 22px}
+.stat .n{font-family:var(--font-display);font-size:38px;font-weight:600;letter-spacing:-.02em;line-height:1;color:var(--band-ink)}
+.stat .n em{font-style:normal;color:var(--cyan)}
+.stat .l{font-size:13px;color:var(--band-muted);margin-top:8px;line-height:1.4}
+@media (max-width:640px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* body grid */
+.layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:56px;padding-block:56px 80px}
+@media (max-width:960px){.layout{grid-template-columns:minmax(0,1fr);gap:0}.rail{display:none}}
+.rail{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto;padding-right:4px}
+.rail h5{font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:500}
+.rail ol{list-style:none;margin:0 0 28px;padding:0;display:grid;gap:2px;counter-reset:t}
+.rail li a{display:block;text-decoration:none;font-size:13.5px;line-height:1.35;color:var(--muted);padding:6px 10px;border-radius:6px;border-left:2px solid transparent}
+.rail li a:hover{color:var(--ink);background:var(--cyan-soft)}
+.rail li a.on{color:var(--ink);border-left-color:var(--navy);background:var(--cyan-soft)}
+main{min-width:0}
+
+/* sections */
+.sec{padding-block:8px 44px;border-bottom:1px solid var(--line);margin-bottom:44px;max-width:780px}
+.sec:last-child{border-bottom:0}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan-ink);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+.eyebrow::before{content:"";width:7px;height:7px;background:var(--cyan)}
+h2{font-family:var(--font-display);font-weight:600;font-size:clamp(26px,3vw,34px);line-height:1.15;letter-spacing:-.02em;margin:0 0 18px;color:var(--navy-deep);text-wrap:balance}
+h3{font-family:var(--font-display);font-weight:600;font-size:20px;line-height:1.3;letter-spacing:-.01em;margin:34px 0 10px;color:var(--ink);text-wrap:balance}
+h4{font-family:var(--font-display);font-weight:600;font-size:16px;margin:26px 0 6px;color:var(--navy)}
+p{margin:0 0 14px;max-width:68ch}
+p strong{color:var(--navy-deep)}
+ul{margin:0 0 16px;padding-left:0;list-style:none;display:grid;gap:8px;max-width:68ch}
+ul li{position:relative;padding-left:22px}
+ul li::before{content:"";position:absolute;left:2px;top:.62em;width:7px;height:7px;background:var(--navy);opacity:.8}
+ol.steps{list-style:none;padding:0;margin:8px 0 0;counter-reset:s;display:grid;gap:10px}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:44px minmax(0,1fr);align-items:start;gap:14px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+ol.steps li::before{content:counter(s,decimal-leading-zero);font-family:var(--font-mono);font-size:13px;color:var(--cyan-ink);background:var(--cyan-soft);border-radius:6px;text-align:center;padding:3px 0}
+
+.sc-sh{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan-ink);font-weight:500;margin:28px 0 12px;display:flex;align-items:center;gap:8px}
+.sc-sh::before{content:"";width:7px;height:7px;background:var(--cyan)}
+footer{border-top:1px solid var(--line);padding-block:28px 40px;color:var(--muted);font-size:13px}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.contact{display:flex;flex-wrap:wrap;gap:6px 24px;align-items:baseline;background:var(--band);color:var(--band-ink);border-radius:14px;padding:22px 24px;margin-top:8px}
+.contact b{font-family:var(--font-display);font-size:18px}
+.contact span{color:var(--band-muted);font-size:14px}
+.contact code{font-family:var(--font-mono);font-size:14px;color:var(--cyan);user-select:all}
+.cta{display:inline-flex;align-items:center;gap:8px;background:var(--navy);color:#fff;text-decoration:none;font-weight:600;font-size:14.5px;padding:11px 18px;border-radius:999px;margin:6px 0 4px;border:1px solid var(--navy)}
+.cta:hover{background:var(--navy-deep)}
+.cta svg{width:14px;height:14px}
+.cta-row{margin:14px 0 0;max-width:none !important}
+.tw{overflow-x:auto;margin:14px 0 20px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.45;font-variant-numeric:tabular-nums}
+th{font-family:var(--font-mono);font-weight:500;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--cyan-soft);white-space:nowrap}
+td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+
+/* portfolio */
+.rail a.rc{display:grid;gap:3px;padding-block:7px}
+.rc-n{display:flex;align-items:center;gap:8px;min-width:0}
+.rc-n .flag{width:16px;height:11px}
+.rail .rc-t{justify-self:start}
+.rail h6.rg{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--navy-deep);font-weight:600;margin:0 0 4px;padding:0 0 4px 12px;border-bottom:1px solid var(--line)}
+#rail-clients ol{margin-bottom:18px}
+.status.live.ok{background:var(--green-soft);color:var(--green)}
+.pj-head .status.live.ok{background:var(--green-band);color:#12301F}
+.done{color:var(--green) !important;background:var(--green-soft) !important}
+.done{display:inline-flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:500;color:var(--cyan-ink);background:var(--cyan-soft);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.done::before{content:"✓"}
+.ctry{display:inline-flex;align-items:center;gap:7px}
+.flag{width:20px;height:14px;flex:none;border-radius:2px;box-shadow:0 0 0 1px var(--line);display:inline-block;vertical-align:-2px}
+.pj-meta .flag{box-shadow:0 0 0 1px rgba(255,255,255,.25)}
+.stat .n.flags{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:26px}
+.stat .n.flags .flag{width:24px;height:17px}
+
+.types{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:820px){.types{grid-template-columns:minmax(0,1fr)}}
+.tycard{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px;min-width:0}
+.tycard p{margin:10px 0 0;font-size:14px;color:var(--muted)}
+.tycard .tyn{font-family:var(--font-mono);font-size:11.5px;color:var(--cyan-ink)}
+.ty{display:inline-block;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:4px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.ty.main{font-weight:500}
+.ty-transformation.main{background:var(--navy);border-color:var(--navy);color:var(--surface)}
+.ty-strategy.main{background:var(--cyan-soft);border-color:var(--cyan-ink);color:var(--cyan-ink)}
+.ty-product.main{background:var(--surface);border-color:var(--navy);color:var(--navy-deep)}
+.ty.sm{font-size:10px;padding:2px 6px;margin:1px 0}
+.pj-types{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;position:relative;z-index:1}
+.pj-types .ty{border-color:rgba(255,255,255,.3);color:var(--band-muted);background:transparent}
+.pj-types .ty.main{background:var(--cyan);border-color:var(--cyan);color:#1F2B3D}
+.filters{display:grid;gap:8px;margin:0 0 12px}
+.fgrp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.flbl{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);width:96px}
+.fbtn{font:500 13px var(--font-body);padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer}
+.fbtn:hover{color:var(--ink);border-color:var(--slate)}
+.fbtn.on{background:var(--navy);border-color:var(--navy);color:var(--surface)}
+
+.stats.s3{grid-template-columns:repeat(3,minmax(0,1fr));max-width:720px}
+@media (max-width:640px){.stats.s3{grid-template-columns:minmax(0,1fr)}}
+.sec.wide{max-width:none}
+.tbc{font-family:var(--font-mono);font-size:.86em;color:var(--navy);background:var(--cyan-soft);border:1px dashed var(--slate);padding:1px 6px;border-radius:4px;white-space:normal}
+.tbc::before{content:"TBC · ";color:var(--muted)}
+.tbc.bare::before{content:none}
+table.tpl td:first-child{font-weight:600;white-space:nowrap;color:var(--navy-deep);width:180px}
+table.idx{min-width:820px}
+table.idx td:nth-child(3){white-space:nowrap}
+table.idx td:first-child a{font-weight:600;color:var(--navy-deep);text-decoration:none}
+table.idx td:first-child a:hover{text-decoration:underline}
+.status{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;white-space:nowrap;border:1px solid var(--line);color:var(--muted)}
+.status.live{background:var(--cyan-soft);color:var(--cyan-ink);border-color:transparent}
+
+.proj{margin:0 0 48px;border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden;scroll-margin-top:24px}
+.pj-head{background:var(--band);color:var(--band-ink);padding:26px 24px 20px;position:relative;overflow:hidden}
+.pj-head::after{content:"";position:absolute;right:-90px;top:-110px;width:300px;height:300px;border-radius:50%;border:36px solid transparent;border-top-color:rgba(182,230,240,.14);border-right-color:rgba(182,230,240,.08);transform:rotate(18deg);pointer-events:none}
+.pj-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;position:relative;z-index:1}
+.pj-sector{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan);margin:0 0 8px}
+.pj-head h2{color:var(--band-ink);margin:0 0 8px;font-size:clamp(26px,3vw,34px)}
+.pj-one{color:var(--band-muted);margin:0 0 18px;max-width:64ch;position:relative;z-index:1;font-size:16.5px}
+.pj-head .tbc{color:var(--band-ink);background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.3)}
+.pj-head .tbc::before{color:var(--band-muted)}
+.pj-meta{display:flex;flex-wrap:wrap;gap:10px 32px;margin:0;padding-top:14px;border-top:1px solid rgba(255,255,255,.14);position:relative;z-index:1}
+.pj-meta dt{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--band-muted)}
+.pj-meta dd{margin:2px 0 0;font-size:14px;font-weight:500;color:var(--band-ink)}
+.pj-meta a{color:var(--cyan);text-decoration:none}
+.pj-head .status{border-color:rgba(255,255,255,.25);color:var(--band-muted)}
+.pj-head .status.live{background:var(--cyan);color:#1F2B3D}
+
+.pj-body{padding:8px 24px 26px}
+.pj-overview{font-family:var(--font-display);font-size:clamp(18px,1.9vw,21px);line-height:1.45;color:var(--navy-deep);margin:22px 0 0;max-width:62ch;border-left:3px solid var(--cyan);padding-left:16px}
+.pj-overview .tbc{font-family:var(--font-mono);font-size:.7em}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:820px){.grid2{grid-template-columns:minmax(0,1fr)}}
+.panel{border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0;background:var(--bg)}
+.panel p{margin:0}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--surface);display:inline-flex;align-items:center;gap:6px}
+.chip::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--line)}
+.chip.on{color:var(--ink);border-color:var(--navy);background:var(--cyan-soft);font-weight:500}
+.chip.on::before{background:var(--navy)}
+.chip-note{font-size:12.5px;color:var(--muted);margin-top:10px !important}
+
+.struct{display:grid;gap:8px}
+.st-row{display:grid;grid-template-columns:20px minmax(0,1fr);gap:10px;align-items:start;font-size:14px}
+.st-row .mk{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--slate);margin-top:3px;display:grid;place-items:center;font-size:11px;line-height:1;color:var(--surface)}
+.st-row.on .mk{background:var(--navy);border-color:var(--navy)}
+.st-row.on .mk::after{content:"✓"}
+.st-row.q .mk{border-style:dashed}
+.st-row b{display:block;font-weight:600;color:var(--ink)}
+.st-row span{color:var(--muted);font-size:13px}
+.st-row.off b{color:var(--muted);font-weight:500}
+
+.tl{list-style:none;margin:0;padding:0;display:grid;gap:8px;max-width:none}
+.tl li{display:grid;grid-template-columns:112px minmax(0,1fr);gap:12px;padding:0;align-items:start}
+.tl li::before{content:none}
+.tl .when{font-family:var(--font-mono);font-size:11.5px;color:var(--cyan-ink);background:var(--cyan-soft);border-radius:4px;padding:3px 6px;text-align:center;line-height:1.4}
+.tl .what{font-size:14px}
+.tl .what b{display:block;font-weight:600}
+.tl .what span{color:var(--muted);font-size:13px}
+.tl-bar{display:flex;gap:3px;margin:0 0 14px;height:8px}
+.tl-bar i{flex:1;border-radius:2px;background:var(--line)}
+.tl-bar i.d{background:var(--navy)}
+.tl-bar i.b{background:var(--cyan)}
+.tl-sum{font-size:13px;color:var(--muted);margin:0 0 10px !important}
+.tl-sum b{color:var(--ink)}
+
+.sol{display:grid;gap:10px}
+.sol-i{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:var(--surface)}
+.sol-tag{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:500;padding:2px 8px;border-radius:999px;background:var(--navy);color:var(--surface);vertical-align:middle;margin-left:6px;white-space:nowrap}
+.sol-tag.conf{background:var(--surface);color:var(--muted);border:1px solid var(--slate)}
+.sol-tag.soon{background:var(--cyan-soft);color:var(--cyan-ink);border:1px dashed var(--cyan-ink)}
+.sol-i h4{margin:0 0 4px;font-size:16px;color:var(--navy-deep)}
+.sol-i p{margin:0;font-size:14px;color:var(--muted);max-width:none}
+.sol-i .sub{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.sol-i .sub span{font-size:12px;padding:2px 8px;border-radius:4px;background:var(--cyan-soft);color:var(--cyan-ink)}
+
+table.ip{min-width:600px}
+table.ip td:first-child{font-weight:600;color:var(--navy-deep)}
+.own{font-family:var(--font-mono);font-size:11.5px;white-space:nowrap}
+
+.outc{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:820px){.outc{grid-template-columns:minmax(0,1fr)}}
+.oc{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--bg)}
+.oc .k{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan-ink);margin:0 0 6px}
+.oc .v{font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--navy-deep);margin:0 0 4px;line-height:1.2}
+.oc .d{font-size:13px;color:var(--muted);margin:0}
+.pj-link{margin-top:18px}
+</style>
+<div class="band">
+  <div class="wrap">
+    <div class="topbar">
+      <span class="brand">
+        <svg viewBox="0 0 40 40" aria-hidden="true">
+          <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C8CED4"/><stop offset="1" stop-color="#B6E6F0"/></linearGradient></defs>
+          <path d="M31 9.5A15 15 0 1 0 31 30.5" fill="none" stroke="url(#lg)" stroke-width="6" stroke-linecap="square"/>
+          <rect x="31" y="5" width="5" height="5" fill="#B6E6F0"/><rect x="31" y="30" width="5" height="5" fill="#C8CED4"/>
+        </svg>
+        Automagic AI
+      </span>
+      <span class="crumb">Client portfolio · November 2026</span>
+    </div>
+    <header class="cover">
+      <p class="kicker">Portfolio · Selected engagements</p>
+      <h1>Client Portfolio</h1>
+      <p class="lede">The organisations we have helped put AI to work: what each one needed, what we built, how the engagement was structured, and what they now own.</p>
+      <div class="stats s3">
+        <div class="stat"><div class="n">9</div><div class="l">Client engagements</div></div>
+        <div class="stat"><div class="n">3 <em>·</em> 4 <em>·</em> 2</div><div class="l">Startups, small–mid size firms and enterprises</div></div>
+        <div class="stat"><div class="n flags"><span id="cv-il"></span>IL <em>·</em> <span id="cv-uk"></span>UK <em>·</em> <span id="cv-us"></span>US</div><div class="l">Markets served</div></div>
+      </div>
+    </header>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="layout">
+    <nav class="rail" aria-label="Contents">
+      <h5>Contents</h5>
+      <ol>
+        <li><a href="#how-to-read">How each project is presented</a></li>
+        <li><a href="#types">Engagement types</a></li>
+        <li><a href="#index">Project index</a></li>
+      </ol>
+      <h5>Projects</h5>
+      <div id="rail-clients"></div>
+    </nav>
+    <main>
+
+<section class="sec" id="how-to-read">
+  <p class="eyebrow">Template</p>
+  <h2>How each project is presented</h2>
+  <p>Every engagement follows the same layout, so clients can be compared at a glance. Fields still waiting for confirmation are shown like this: <span class="tbc bare">TBC · country</span>. Commercial figures are shown as $XXX.</p>
+  <div class="tw"><table class="tpl">
+    <thead><tr><th>Field</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <tr><td>Client</td><td>Name, website, country and sector</td></tr>
+      <tr><td>Engagement type</td><td>AI Transformation, AI Strategy or AI Product Build. The first listed is the main one.</td></tr>
+      <tr><td>Company type</td><td>Startup, Small–mid size or Enterprise</td></tr>
+      <tr><td>One-liner</td><td>What the client's business does, in one sentence</td></tr>
+      <tr><td>Overview</td><td>The brief, written as: <em>the client needed X to help them with Y</em></td></tr>
+      <tr><td>Services</td><td>Which Automagic services were used: Discovery, Design, Build in waves, Adopt, Run and evolve, Fractional Transformation Lead</td></tr>
+      <tr><td>Timeline</td><td>Start date, duration, and the phases or waves in order</td></tr>
+      <tr><td>Structure</td><td>The commercial model: fixed cost per tool or agent, monthly consultancy, fractional lead, and who pays external costs</td></tr>
+      <tr><td>Solutions</td><td>What was delivered, named as the client knows it</td></tr>
+      <tr><td>Bespoke builds and IP</td><td>Each custom asset, what kind of asset it is, and who owns the IP</td></tr>
+      <tr><td>Outcomes</td><td>Measured results, or the KPIs being tracked</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="sec wide" id="types">
+  <p class="eyebrow">Engagement types</p>
+  <h2>Three kinds of work</h2>
+  <div class="types" id="types-grid"></div>
+</section>
+
+<section class="sec wide" id="index">
+  <p class="eyebrow">Overview</p>
+  <h2>Project index</h2>
+  <div class="filters" role="group" aria-label="Filter clients" id="filters"></div>
+  <div class="tw"><table class="idx">
+    <thead><tr><th>Client</th><th>Type</th><th>Company</th><th>Country</th><th>Sector</th><th>Services</th><th>Structure</th><th>Status</th></tr></thead>
+    <tbody id="idx-body"></tbody>
+  </table></div>
+</section>
+
+<div id="projects"></div>
+
+<section class="sec" id="contact">
+  <p class="eyebrow">Next steps</p>
+  <h2>Talk to us about your organisation</h2>
+  <p>Every engagement starts with a short discovery. We find where AI creates the most leverage, then build only what the findings support.</p>
+  <div class="contact"><b>Automagic AI</b><span>Moshe, Founder</span><code>hello@moshedavid.xyz</code><span>automagic.agency</span></div>
+</section>
+
+    </main>
+  </div>
+</div>
+
+<div class="wrap am-more"><h2>Keep exploring</h2><div class="am-cards"><a class="am-card" href="/hunter/"><b>Hunter Executive</b><span>Executive search · discovery findings and the PESA platform</span><i>Read the case study →</i></a><a class="am-card" href="/zugi/"><b>Zugi.ai</b><span>Private markets · AI investment reasoning, end to end</span><i>Read the case study →</i></a><a class="am-card" href="/revscale/"><b>Revscale</b><span>Franchising · AI agent workforce and FranchiseHub</span><i>Read the case study →</i></a><a class="am-card" href="/"><b>Portfolio</b><span>Featured case studies and every client at a glance</span><i>Open →</i></a></div><p class="am-legal">Confidential. Shared under the <a href="/terms/">Terms of Access</a>; please do not copy or share.</p></div><footer><div class="wrap"><span>Automagic AI · Client Portfolio</span><span>November 2026 · Confidential</span></div></footer>
+
+<script>
+/* Portfolio data. One object per client; null or missing = shown as TBC. */
+var SERVICES=[
+  ["discovery","Discovery"],["design","Design"],["build","Build in waves"],
+  ["adopt","Adopt"],["run","Run and evolve"],["fractional","Fractional Transformation Lead"]
+];
+var TYPES={
+  transformation:["AI Transformation","Firm-wide change: discovery, a roadmap and AI built into how the whole organisation works."],
+  strategy:["AI Strategy","Research, discovery and a prioritised plan for where AI creates value, ready to act on."],
+  product:["AI Product Build","Designing and shipping AI-powered products and features for the client's own customers."]
+};
+var SIZES={startup:"Startup", midsize:"Small–mid size", enterprise:"Enterprise"};
+var FLAGS={
+  il:'<svg class="flag" viewBox="0 0 22 16" aria-hidden="true"><rect width="22" height="16" fill="#fff"/><rect y="1.5" width="22" height="2.4" fill="#0038b8"/><rect y="12.1" width="22" height="2.4" fill="#0038b8"/><path d="M11 4.6 13.6 9.1H8.4Z M11 11.4 8.4 6.9H13.6Z" fill="none" stroke="#0038b8" stroke-width=".9"/></svg>',
+  uk:'<svg class="flag" viewBox="0 0 60 30" aria-hidden="true"><clipPath id="ukc"><path d="M30 15h30v15zv15H0zH0V0zV0h30z"/></clipPath><path d="M0 0v30h60V0z" fill="#012169"/><path d="M0 0l60 30m0-30L0 30" stroke="#fff" stroke-width="6"/><path d="M0 0l60 30m0-30L0 30" clip-path="url(#ukc)" stroke="#C8102E" stroke-width="4"/><path d="M30 0v30M0 15h60" stroke="#fff" stroke-width="10"/><path d="M30 0v30M0 15h60" stroke="#C8102E" stroke-width="6"/></svg>',
+  us:'<svg class="flag" viewBox="0 0 19 10" aria-hidden="true"><rect width="19" height="10" fill="#B22234"/><path d="M0 1.15h19M0 2.69h19M0 4.23h19M0 5.77h19M0 7.31h19M0 8.85h19" stroke="#fff" stroke-width=".77"/><rect width="7.6" height="5.38" fill="#3C3B6E"/><g fill="#fff"><circle cx="1.3" cy="1.1" r=".35"/><circle cx="3.1" cy="1.1" r=".35"/><circle cx="4.9" cy="1.1" r=".35"/><circle cx="6.7" cy="1.1" r=".35"/><circle cx="2.2" cy="2.4" r=".35"/><circle cx="4" cy="2.4" r=".35"/><circle cx="5.8" cy="2.4" r=".35"/><circle cx="1.3" cy="3.7" r=".35"/><circle cx="3.1" cy="3.7" r=".35"/><circle cx="4.9" cy="3.7" r=".35"/><circle cx="6.7" cy="3.7" r=".35"/></g></svg>'
+};
+function flagFor(c){ if(!c) return ''; if(/^Israel/.test(c)) return FLAGS.il; if(/^United Kingdom/.test(c)) return FLAGS.uk; if(/^United States/.test(c)) return FLAGS.us; return ''; }
+var CLIENTS=[
+{
+  id:"hunter", size:"midsize", types:["transformation"], name:"Hunter Executive", legal:"Hunter, part of the Kestria alliance", url:"https://hunter.co.il/", domain:"hunter.co.il",
+  country:"Israel", sector:"Executive search",
+  oneLiner:"A leading Israeli executive search and leadership consulting firm, and a member of the Kestria global search alliance.",
+  status:"Completed",
+  overview:{who:"Hunter Executive", needed:"a shared intelligence layer on top of its CRM for every consultant", help:"spot mandates earlier, research and prioritise in minutes instead of hours, and keep key relationships from going cold"},
+  services:["discovery","design","build","adopt","run","fractional"],
+  servicesNote:"End-to-end: discovery and design, then build, adoption and ongoing running of the platform.",
+  timeline:{start:null, duration:"10 months in total, discovery through three build waves",
+    bar:["d","d","b","b","b","b","b","b","b","b"],
+    steps:[
+      {when:"Discovery", what:"Discovery Findings report", detail:"Interviews, workflow mapping and a data audit. Twenty findings across seven themes.", done:true},
+      {when:"Design", what:"PESA Stage 1 proposal", detail:"Solution, scope, wave plan, business case and KPIs.", done:true},
+      {when:"Wave 1", what:"PESA platform and first agents", detail:"The PESA platform and the first four agents.", done:true},
+      {when:"Wave 2", what:"Signals and relationships", detail:"Signals, candidate research, relationship scoring and workflow automation.", done:true},
+      {when:"Wave 3", what:"Sourcing and outreach", detail:"Sourcing, outreach and ecosystem intelligence.", done:true},
+      {when:"Total", what:"10 months", detail:"From discovery to all three waves complete.", done:true},
+      {when:"Ongoing", what:"Run and evolve", detail:"Monitoring, tuning, KPI reviews at each wave, and scoping of later stages."}
+    ]},
+  structure:{fixed:true, consultancy:true, fractional:true, external:"Paid by Hunter directly, at cost (AI models, hosting, data providers, APIs)"},
+  structureNote:"Fees shown as $XXX in client-facing documents.",
+  solutions:[
+    {name:"PESA", desc:"A Personal Executive Search Assistant for every consultant: a governed AI operating layer on the Hunter CRM, with shared firm-wide rules, memory and data. Twelve specialist agents in four suites do the work, and the CRM stays the system of record.",
+     parts:["Lead Intelligence","Account Prioritization","Outreach","Sourcing","Candidate Research","Fit Assessment","RelationshipScore","Ecosystem Intelligence","Next-Best-Action","Meeting Intelligence","Proposal Generation","Workflow Automation"]},
+    {name:"Placement Radar", desc:"The prospecting front end: surfaces mandate signals such as executive moves, funding rounds and hiring surges, so consultants act before competitors.", parts:[]}
+  ],
+  ip:[
+    {asset:"PESA platform", type:"Bespoke platform: agent runtime, shared memory, management agent, CRM integration", owner:"Hunter", confirm:true},
+    {asset:"12 PESA agents", type:"Bespoke agents: logic, scoring rules, workflows and prompts", owner:"Hunter", confirm:true},
+    {asset:"Placement Radar", type:"Prospecting tool", owner:null},
+    {asset:"Data and API providers", type:"Third-party services", owner:"Providers, licensed by Hunter"}
+  ],
+  outcomes:[
+    {k:"Adoption", v:null, d:"Weekly active PESA users"},
+    {k:"Time saved", v:null, d:"Consultant hours saved per week"},
+    {k:"Revenue", v:null, d:"Additional mandates won per year"}
+  ],
+  link:{href:"/hunter/", label:"Read the Discovery Findings report"}
+},
+{
+  id:"zugi", size:"startup", types:["product","strategy"], name:"Zugi.ai", legal:"Zugi Ventures Limited", url:"https://zugi.ai", domain:"zugi.ai",
+  country:"United Kingdom", sector:"Private markets",
+  oneLiner:"An AI-native investment intelligence platform for private-market investors: venture capital, private equity, family offices, angels and syndicates.",
+  status:"Completed",
+  overview:{who:"Zugi.ai", needed:"investment analysis that professional investors would actually rely on, taken from a 2023 research question to a working platform, then rebuilt when foundation-model releases caught up", help:"give private-market investors trustworthy, explainable insight, and stay defensible as a full vertical AI platform"},
+  services:["discovery","design","build","adopt"],
+  servicesNote:"End to end: research and discovery, product design, the core platform build, beta and go-to-market with 200+ design partners, then a six-month pivot.",
+  timeline:{start:"2023", duration:"About three years end to end, including a six-month pivot",
+    steps:[
+      {when:"2023", what:"Thesis and research", detail:"Set the research question, built and compared reasoning workflows, and back-tested them on historical investment cases.", done:true},
+      {when:"Q4 2024 – Q2 2025", what:"Core platform", detail:"Orchestration, scoring, memory, ZugiGPT and Co-Pilot. Onboarded 200+ design partners across the US, EU, MENA and Asia.", done:true},
+      {when:"Q3 2025 on", what:"Beta into go-to-market", detail:"Activation and monetisation on a freemium-to-premium model for institutional and prosumer investors.", done:true},
+      {when:"6 months", what:"The pivot", detail:"Discovery, design and build of the multi-LLM vertical platform and the governance layer.", done:true}
+    ]},
+  structure:{fixed:true, consultancy:false, fractional:false, external:null},
+  structureNote:"Fixed price. Fees shown as $XXX.",
+  solutions:[
+    {name:"Hybrid reasoning platform", tag:"Built", desc:"Software controls the workflow, data and scores; language models interpret findings, explain scores and write the analysis in investment-memo order.", parts:["Request orchestrator","Context builder and data fusion","Deterministic scoring engine","AI reasoning layer","Agentic workflow"]},
+    {name:"ZugiGPT, Co-Pilot and Datahub", tag:"Built", desc:"The product investors used: a real-time analyst agent, a personal co-pilot that adapts to each investor, and search across companies, investors and people enriched with live research.", parts:["ZugiGPT","Co-Pilot","VC Matrix","Masters Board","Datahub"]},
+    {name:"Investor memory and personalisation", tag:"Built", desc:"Conversational and long-term user memory hold each investor's thesis, formulas and weights, so analysis is personal without retraining a model.", parts:[]},
+    {name:"Pivot to multi-LLM vertical AI", tag:"Built", desc:"Moved from a proprietary small language model to several leading LLMs chosen by task, with context and chat history on the providers' own features.", parts:[]},
+    {name:"Governance layer and live feedback loops", tag:"Built", desc:"Controls how agents access, share and keep data, so user data is never passed on or used for training. Live client feedback flows straight into the prompts.", parts:[]}
+  ],
+  ip:[
+    {asset:"Hybrid reasoning platform (orchestrator, scoring engine, reasoning layer)", type:"Bespoke platform", owner:"Zugi.ai"},
+    {asset:"ZugiGPT, Co-Pilot and Datahub", type:"Product and agents", owner:"Zugi.ai"},
+    {asset:"Governance layer, prompts and feedback-loop workflows", type:"Bespoke layer, workflows and prompts", owner:"Zugi.ai"}
+  ],
+  outcomes:[
+    {k:"Design partners", v:"200+", d:"VCs, PE, angels and solo GPs"},
+    {k:"Regions", v:"4", d:"US, EU, MENA and Asia"},
+    {k:"Pivot", v:"6 months", d:"From SLM to multi-LLM vertical AI, completed"}
+  ],
+  link:{href:"/zugi/", label:"Read the full case study"}
+},
+{
+  id:"tero", size:"startup", types:["product","strategy"], name:"Tero", legal:"TRCPL Ltd, trading as Tero", url:"https://tero.capital", domain:"tero.capital",
+  country:"United Kingdom (London)", sector:"Angel investing",
+  oneLiner:"AI-native software for UK angel investors, covering due diligence reports, portfolio monitoring and EIS/SEIS tax-relief tracking.",
+  status:"In progress",
+  overview:{who:"Tero", needed:"a product suite that reduces churn and gives investors a reason to come back every week", help:"turn one-off due-diligence and tax tools into an AI-powered workspace angels rely on across their whole portfolio"},
+  services:["discovery","design","build","fractional"],
+  servicesNote:"Discovery across product, tech and users, a full UI/UX revamp, AI feature design and build, led by a Fractional Transformation Lead.",
+  timeline:{start:"November 2026", duration:"Discovery, then design and build in stages",
+    steps:[
+      {when:"Discovery", what:"Product, technical and user discovery", detail:"Review of all five product areas, the platform and its AI logic. Found where investors drop off and what would keep them returning."},
+      {when:"Design", what:"Churn-reduction roadmap", detail:"SEIS and EIS revamp, competitor research, and 53 current and planned features to validate with investors."},
+      {when:"Building", what:"Angel investor survey", detail:"In-app survey that ranks features and finds the must-haves that stop angels from leaving."},
+      {when:"Building", what:"Full UI/UX revamp", detail:"New investor dashboard and plain-language screens across the product."},
+      {when:"Next", what:"AI feature releases", detail:"Coming-soon features shipped in the order the survey results support.", tbc:"dates"}
+    ]},
+  structure:{fixed:true, consultancy:false, fractional:true, external:null},
+  structureNote:"Fixed price for each build plus a fractional lead fee. Fees shown as $XXX.",
+  solutions:[
+    {name:"Discovery and churn diagnosis", tag:"Delivered", desc:"A review of Tero's five product areas, its platform and AI logic, and how investors use it. It pinpointed what drives investor churn and the features that would keep angels coming back.", parts:[]},
+    {name:"Angel investor feature survey", tag:"Building", desc:"About 80 questions built inside the Tero app. Investors rate 53 live and coming-soon features, flag the ones they could not do without, and receive a free month in return. Results feed an admin view that ranks what to build next.", parts:[]},
+    {name:"Full UI/UX revamp", tag:"Building", desc:"A new investor dashboard and a simpler product: money first, a single 'next 3 actions' list, plain words instead of form names, and a progress bar per company. Five visual directions explored, each keeping Tero's gold brand.", parts:[]},
+    {name:"AI portfolio intelligence", tag:"Coming soon", desc:"Gives investors a reason to open Tero every week, not only at tax time: early warnings and forecasts on every holding, built from filings, hiring, traffic and news.",
+     parts:["Outlook signals (prediction modelling)","Health score per company","Tips and red-flag briefs","Cash and runway warnings","Benchmarking and scenario chat"]},
+    {name:"AI founder and inbox automation", tag:"Coming soon", desc:"Removes the chasing angels hate: Tero collects founder updates and certificates and reads investor emails for them.",
+     parts:["Automatic founder updates","Email inbox connection","Forward certificates by email","Tero chases the founder for you"]},
+    {name:"AI tax relief assistant", tag:"Coming soon", desc:"Makes SEIS and EIS claims simple for non-experts, from knowing what is owed to filing it.",
+     parts:["Fill in your claim for you","Ask about my reliefs","Allowance and carry-back planner","What to do next home","Filing partner hand-off"]}
+  ],
+  ip:[
+    {asset:"Tero platform", type:"Client's existing codebase", owner:"Tero"},
+    {asset:"Angel survey feature", type:"Bespoke in-app feature: survey, gateway, admin results", owner:"Automagic"},
+    {asset:"Strategy, research and design documents", type:"Discovery, roadmap, revamp and UI/UX deliverables", owner:"Automagic"}
+  ],
+  outcomes:[
+    {k:"Churn", v:null, d:"Monthly investor churn"},
+    {k:"Engagement", v:null, d:"Weekly returning investors"},
+    {k:"Validation", v:null, d:"Survey responses and must-have features found"}
+  ]
+},
+{
+  id:"revscale", size:"startup", types:["product"], name:"Revscale", legal:"Revscale, Inc.", url:"https://revscale.com/", domain:"revscale.com",
+  country:"United States", sector:"Franchise and multi-location operations",
+  oneLiner:"Deploys and manages AI agents that do the work at every location of multi-location businesses and franchise networks.",
+  status:"Live",
+  overview:{who:"Revscale", needed:"an AI workforce that answers, calls, chats and prospects at every location, and one operating platform to replace the patchwork of CRMs, spreadsheets and point tools franchisors run on", help:"stop revenue leaking between locations and run a franchise network from first candidate to open unit on one record"},
+  services:["design","build","fractional"],
+  servicesNote:"Fractional CTO, plus platform design and build: the six location agents, bespoke operator builds, then FranchiseHub, which joins them on one data model.",
+  timeline:{start:null, duration:"Built in stages, each tested with live operators. FranchiseHub took 3 months",
+    steps:[
+      {when:"Stage 1", what:"AI agent workforce", detail:"Six location agents (Voice, Inbound, Chatbot, Outbound, Web Pixel, Digital), each with a brand knowledge base, hand-off rules and a rollout that goes live in 24 to 48 hours.", done:true},
+      {when:"Stage 2", what:"Operator builds", detail:"Development CRM, signature workflow, vendor marketplace, real estate module and LMS for live franchise brands, plus the Ignite Visibility onboarding OS.", done:true},
+      {when:"Stage 3", what:"FranchiseHub", detail:"Three months of design and build: six core modules and two add-ons on one data model, with the agents installed as power-ups.", done:true},
+      {when:"Now", what:"Early access and network rollouts", detail:"FranchiseHub opening to franchise development clients first, alongside network-wide agent rollouts such as Venture X and Signarama."}
+    ]},
+  structure:{fixed:true, consultancy:false, fractional:true, external:null},
+  structureNote:"Fixed price for the builds, plus a fractional CTO fee: Automagic acted as Revscale's fractional CTO. Fees shown as $XXX.",
+  solutions:[
+    {name:"Location-level AI agent workforce", tag:"Built", desc:"Six agents, each designed as a role with a clear scope and hand-off, running 24/7 at every location and answering only from the brand's own knowledge.",
+     parts:["Voice","Inbound","Chatbot","Outbound","Web Pixel","Digital"]},
+    {name:"FranchiseHub", tag:"Built", desc:"Franchise management software with the agents built in. One record moves from candidate to franchisee to location, so nothing is rekeyed between tools.",
+     parts:["Franchisee Management","Development Pipeline","Documents and Signature","Onboarding and Training (LMS)","Analytics and Visualizations","AI Access (MCP)","Vendor Hub add-on","Site Selection add-on"]},
+    {name:"Franchise development package", tag:"Built", desc:"An owned development channel: agents source candidates, run personalised outreach, reply in under 60 seconds and follow up through the award cycle, with an AI-ready franchise site and a content agent.",
+     parts:["Franchise Development agent","AI-ready franchise site","Content agent","Built-in CRM"]},
+    {name:"Multi-tenant brands and guardrails", tag:"Built", desc:"Each brand runs an isolated instance on shared infrastructure. Compliance is built into the workflow: FDD stage gate with a 14-day clock, exclusion lists, owner approvals and no earnings claims.", parts:[]},
+    {name:"Network intelligence and AI assistant access", tag:"Built", desc:"Dashboards by brand, region and location, location health scoring and cohort benchmarks, and an MCP connection so teams can ask questions from ChatGPT, Claude, Gemini or Copilot with role-based access.", parts:[]}
+  ],
+  ip:[
+    {asset:"Revscale AI agents", type:"Bespoke agents, knowledge bases and rollout", owner:"Revscale"},
+    {asset:"FranchiseHub", type:"Bespoke product: six core modules, two add-ons, AI agent integration", owner:"Revscale"},
+    {asset:"Network intelligence layer and MCP access", type:"Bespoke platform layer", owner:"Revscale"}
+  ],
+  outcomes:[
+    {k:"Pipeline", v:"$100M+", d:"Created by Revscale agents (reported by Revscale)"},
+    {k:"Response", v:"<60 sec", d:"Average reply to every inbound lead (reported by Revscale)"},
+    {k:"Qualified leads", v:"+47%", d:"Average per location in the first 90 days (reported by Revscale)"}
+  ],
+  link:{href:"/revscale/", label:"Read the full case study"}
+},
+{
+  id:"ignite", size:"midsize", types:["transformation"], name:"Ignite Visibility", legal:"Delivered with Revscale", url:"https://revscale.com/case-studies/ignite-visibility", domain:"Case study",
+  country:"United States", sector:"Franchise marketing",
+  oneLiner:"One of the largest marketing agencies in franchising, serving dozens of franchise brands and their franchisees.",
+  status:"Live",
+  overview:{who:"Ignite Visibility", needed:"a way to onboard franchisees without manual coordination, since its client book was growing faster than its operations team", help:"sign up, bill and contract franchisees across dozens of brands from one platform, with each brand kept separate"},
+  services:["design","build"],
+  servicesNote:"Custom SaaS platform design and build.",
+  timeline:{start:null, duration:"6 months, design then build and rollout",
+    steps:[
+      {when:"Design", what:"Onboarding and platform design", detail:"Self-serve franchisee journey, multi-tenant model and brand separation."},
+      {when:"Build", what:"Platform build and brand rollout", detail:"Onboarding OS, brand portals including Neighborly, admin layer and automation."},
+      {when:"Total", what:"6 months", detail:"From design to live portals across 10+ brands."}
+    ]},
+  structure:{fixed:true, consultancy:false, fractional:false, external:null},
+  structureNote:"Fixed project price. Fees shown as $XXX.",
+  solutions:[
+    {name:"Franchise Onboarding OS", tag:"Live", desc:"A self-serve journey where franchisees choose a plan, pay, complete business intake and sign their contract in one guided flow, and can resume where they left off. No operations staff are needed in the loop.", parts:["Plan selection","Payments","Business intake","Contract signing","Resume where you left off"]},
+    {name:"Multi-tenant brand portals", tag:"Live", desc:"Each brand runs its own portal instance with its own branding, plan catalogue, pricing and contracts, fully isolated from the others. Neighborly's 19 sub-brands share one instance, with brand selection routing each franchisee to the right plans and contract.", parts:[]},
+    {name:"Operations admin and automation", tag:"Live", desc:"An internal admin layer with role-based permissions for visibility, workflow and reporting. Every completed signup triggers notifications, billing activation and stakeholder reporting automatically.", parts:[]}
+  ],
+  ip:[
+    {asset:"Franchise Onboarding OS", type:"Bespoke multi-tenant SaaS platform", owner:"Ignite Visibility"}
+  ],
+  outcomes:[
+    {k:"Locations", v:"300+", d:"Franchise locations onboarded"},
+    {k:"Brands", v:"10+", d:"Franchise brands on one platform, including 19 Neighborly sub-brands on a single portal"},
+    {k:"Manual work", v:"Zero", d:"Manual contract handling per signup"}
+  ],
+  link:{href:"https://revscale.com/case-studies/ignite-visibility", label:"Read the case study"}
+},
+{
+  id:"founderschair", size:"midsize", types:["product"], name:"The Founder's Chair", legal:"The Founder's Chair, Inc.", url:"https://www.thefounderschair.com/", domain:"thefounderschair.com",
+  country:"United States", sector:"Founder and investor events",
+  oneLiner:"Runs curated events where insurance and wealth tech founders meet operators, investors and acquirers for feedback, capital and exits.",
+  status:"Completed",
+  overview:{who:"The Founder's Chair", needed:"a faster, more reliable way to research and match investors and founders for each event", help:"stop costly mismatched invitations, since every attendee at a bespoke event carries its own hosting cost, and stop missing the right connections"},
+  services:["design","build","run"],
+  servicesNote:"Design and build of an intelligence layer, CRM and operations dashboard, with ongoing support under a monthly consultancy.",
+  timeline:{start:null, duration:"3 months, design then build",
+    steps:[
+      {when:"Design", what:"Matching and operations design", detail:"How attendees are sourced, screened and matched, and how the business runs end to end.", done:true},
+      {when:"Build", what:"Intelligence layer, CRM and dashboard", detail:"Attendee sourcing, deep screening and due diligence, plus the CRM and operations dashboard.", done:true},
+      {when:"Total", what:"3 months", detail:"From design to live tools, with ongoing support after launch.", done:true}
+    ]},
+  structure:{fixed:true, consultancy:true, fractional:false, external:null},
+  structureNote:"Fixed price for the build plus a monthly consultancy fee. Fees shown as $XXX.",
+  solutions:[
+    {name:"Attendee intelligence layer", tag:"Built", desc:"Sources potential attendees and runs deep screening and due diligence on each one: the people, their businesses and their track records. Investors and founders are matched before any invitation goes out.", parts:["Attendee sourcing","Deep screening","Due diligence on people and companies","Investor and founder matching"]},
+    {name:"CRM and operations dashboard", tag:"Built", desc:"One CRM and dashboard to run the whole business, from attendee pipelines to events and follow-up.", parts:[]}
+  ],
+  ip:[
+    {asset:"Attendee intelligence layer", type:"Bespoke AI research and screening system", owner:"The Founder's Chair"},
+    {asset:"CRM and operations dashboard", type:"Bespoke internal platform", owner:"The Founder's Chair"}
+  ],
+  outcomes:[
+    {k:"Research time", v:null, d:"Time to research and screen each invitee"},
+    {k:"Match quality", v:null, d:"Fewer incompatible invitations per event"},
+    {k:"Cost", v:null, d:"Hosting cost saved on mismatched attendees"}
+  ]
+},
+{
+  id:"afc", size:"enterprise", types:["strategy"], name:"AFC Urgent Care", legal:"American Family Care", url:"https://www.afcurgentcare.com/", domain:"afcurgentcare.com",
+  country:"United States", sector:"Healthcare: urgent care",
+  oneLiner:"A national network of walk-in urgent care centres offering same-day treatment, testing and primary care services across the United States.",
+  status:null,
+  overview:{who:"AFC Urgent Care", needed:"a clear picture of where AI could improve patient support across its network", help:"give patients faster, more consistent help before, during and after their visit"},
+  services:["discovery","design","build"],
+  servicesNote:"Discovery and report, then design and build of patient support AI tools. Details are confidential and under NDA.",
+  timeline:null,
+  structure:null,
+  solutions:[
+    {name:"AI transformation discovery and report", tag:"Confidential", desc:"A discovery across the organisation, ending in a report with findings and a roadmap. Contents are under NDA.", parts:[]},
+    {name:"Patient support AI tools", tag:"Confidential", desc:"AI tools built to support patients, based on the discovery findings. Details are under NDA.", parts:[]}
+  ],
+  ip:[
+    {asset:"Discovery report", type:"Confidential strategy deliverable", owner:null},
+    {asset:"Patient support AI tools", type:"Bespoke AI tools", owner:null}
+  ],
+  outcomes:[
+    {k:"Scope", v:"Discovery to build", d:"From findings to tools in use"},
+    {k:"Focus", v:"Patient support", d:"AI tools for patients across the network"},
+    {k:"Details", v:"Under NDA", d:"Results available on request, subject to client approval"}
+  ]
+},
+{
+  id:"venturex", size:"midsize", types:["transformation"], name:"Venture X", legal:"Venture X franchise network", url:"https://venturex.com/", domain:"venturex.com",
+  country:"United States", sector:"Flexible workspace franchise",
+  oneLiner:"A franchise brand of premium coworking and flexible office spaces, with 75+ locations in 7+ countries.",
+  status:"Completed",
+  overview:{who:"Venture X", needed:"one connected system and shared intelligence across 75+ locations in 7+ countries, in place of a scattered tech stack", help:"open new locations faster and cheaper, manage the network centrally, and coordinate marketing and sales across every site"},
+  services:["discovery","design","build","adopt","run"],
+  servicesNote:"Full AI transformation across the network, plus the Revscale suite for marketing, with ongoing consultancy.",
+  timeline:{start:null, duration:"6 months, full AI transformation",
+    steps:[
+      {when:"Discovery", what:"Network and tech stack review", detail:"How locations, systems and data connect today, and where central control was lost.", done:true},
+      {when:"Design", what:"Unified platform and data design", detail:"One CRM and data layer for every location, with AI across marketing, sales and support.", done:true},
+      {when:"Build", what:"CRM, AI marketing, sales and support", detail:"Platform build, Revscale marketing suite rollout and location onboarding.", done:true},
+      {when:"Total", what:"6 months", detail:"Completed, with ongoing consultancy.", done:true}
+    ]},
+  structure:{fixed:true, consultancy:true, fractional:false, external:null},
+  structureNote:"Fixed fees per product plus an ongoing consultancy fee. Fees shown as $XXX.",
+  solutions:[
+    {name:"Unified CRM and data layer", tag:"Delivered", desc:"One CRM and shared data across all locations, so the network is managed centrally and new sites are set up from a standard template instead of from scratch.", parts:[]},
+    {name:"AI marketing, sales and customer support", tag:"Delivered", desc:"Intelligent marketing, sales and support running on the shared data, so campaigns and leads are coordinated across every location and country.", parts:["AI marketing","AI sales","AI customer support"]},
+    {name:"Revscale marketing suite", tag:"Delivered", desc:"Revscale's AI marketing tools deployed across the network.", parts:[]}
+  ],
+  ip:[
+    {asset:"CRM and data layer", type:"Bespoke CRM, data and integrations", owner:"Venture X"},
+    {asset:"Marketing intelligence and Revscale suite", type:"AI marketing intelligence, licensed to Venture X", owner:"Revscale"}
+  ],
+  outcomes:[
+    {k:"Network", v:"75+", d:"Locations on one system, in 7+ countries"},
+    {k:"Expansion", v:null, d:"Time and cost to open a new location"},
+    {k:"Coordination", v:null, d:"Marketing and sales run centrally across the network"}
+  ]
+},
+{
+  id:"sraccord", size:"enterprise", types:["strategy"], name:"SR Accord", legal:"S.R. Accord, listed on the Tel Aviv Stock Exchange", url:"https://sr-accord.com/", domain:"sr-accord.com",
+  country:"Israel", sector:"Non-bank business finance",
+  oneLiner:"A publicly traded non-bank lender that helps Israeli businesses grow through loans, cheque discounting, credit lines, real-estate finance and contractor guarantees.",
+  status:"Completed",
+  overview:{who:"SR Accord", needed:"an AI strategy built on a full picture of how the business runs today", help:"find where AI can speed up and strengthen its financial operations and workflows"},
+  services:["discovery"],
+  servicesNote:"AI strategy discovery. The findings are confidential, so this card describes the process only.",
+  timeline:{start:"September 2026", duration:"1 to 2 week discovery",
+    steps:[
+      {when:"Phase 1", what:"Intake, workshops and tech audit", detail:"Stakeholder workshops across the business and an audit of systems, data and tools."},
+      {when:"Phase 2", what:"Analysis and market research", detail:"Workflow analysis with an emphasis on financial operations, plus market and competitor research on AI in lending."},
+      {when:"Phase 3", what:"Architecture, roadmap and report", detail:"Target AI architecture, a prioritised roadmap and the AI Transformation Discovery Report."}
+    ]},
+  structure:{fixed:true, consultancy:false, fractional:false, external:null},
+  structureNote:"Fixed price. Fees shown as $XXX.",
+  solutions:[
+    {name:"AI strategy discovery", tag:"Delivered", desc:"A discovery covering every part of the business's operations, with an emphasis on financial operations and workflows: how work moves between teams, where time and information are lost, and where AI creates the most leverage.", parts:["Business operations","Financial operations","Workflows and handoffs","Systems and data","Market and competitors"]},
+    {name:"AI Transformation Discovery Report", tag:"Confidential", desc:"Findings, a prioritised roadmap and a target architecture for the leadership team. Contents are confidential to SR Accord.", parts:[]}
+  ],
+  ip:[
+    {asset:"AI Transformation Discovery Report", type:"Confidential strategy deliverable", owner:"SR Accord"}
+  ],
+  outcomes:[
+    {k:"Coverage", v:"Full business", d:"All operations reviewed, with financial operations in depth"},
+    {k:"Deliverable", v:"Roadmap", d:"Prioritised AI roadmap and discovery report"},
+    {k:"Delivery", v:"1–2 weeks", d:"From kick-off to the leadership readout"}
+  ]
+}
+];
+
+(function(){
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  function tbc(label){return '<span class="tbc">'+esc(label)+'</span>'}
+  function val(v,label){return v==null||v===""?tbc(label):esc(v)}
+  function countryHTML(c){return c.country?'<span class="ctry">'+flagFor(c.country)+esc(c.country)+'</span>':tbc('country')}
+
+  function servicesHTML(c){
+    var on=c.services||[];
+    var h='<div class="chips">'+SERVICES.map(function(s){return '<span class="chip'+(on.indexOf(s[0])>-1?' on':'')+'">'+s[1]+'</span>'}).join('')+'</div>';
+    if(!c.services) h+='<p class="chip-note">'+tbc('which services were provided')+'</p>';
+    else if(c.servicesNote) h+='<p class="chip-note">'+esc(c.servicesNote)+'</p>';
+    return h;
+  }
+  function structureHTML(c){
+    var s=c.structure||{};
+    function row(v,title,desc){
+      var cls=v===true?'on':v===false?'off':'q';
+      return '<div class="st-row '+cls+'"><i class="mk" aria-hidden="true"></i><div><b>'+title+(v==null?' '+tbc('yes / no'):'')+'</b><span>'+desc+'</span></div></div>';
+    }
+    var h='<div class="struct">'+
+      row(s.fixed,'Fixed cost per tool or agent','Each build priced and fixed before it starts')+
+      row(s.consultancy,'Monthly consultancy fee','Architecture, delivery, monitoring, tuning and support')+
+      row(s.fractional,'Fractional Transformation Lead','A senior lead for the programme, a set number of days a month')+
+      '<div class="st-row q"><i class="mk" aria-hidden="true" style="border-style:solid;border-color:var(--line)"></i><div><b>External costs</b><span>'+(s.external?esc(s.external):tbc('who pays AI, hosting and API costs'))+'</span></div></div>'+
+      '</div>';
+    if(c.structureNote) h+='<p class="chip-note">'+esc(c.structureNote)+'</p>';
+    return h;
+  }
+  function timelineHTML(c){
+    var t=c.timeline;
+    if(!t) return '<p class="tl-sum"><b>Start</b> '+tbc('month and year')+' · <b>Duration</b> '+tbc('length')+'</p>'+
+      '<ul class="tl"><li><span class="when">Phase 1</span><span class="what">'+tbc('phase, wave or milestone')+'</span></li><li><span class="when">Phase 2</span><span class="what">'+tbc('phase, wave or milestone')+'</span></li></ul>';
+    var h='<p class="tl-sum"><b>Start</b> '+val(t.start,'month and year')+' · <b>Shape</b> '+esc(t.duration)+'</p>';
+    if(t.bar) h+='<div class="tl-bar" aria-hidden="true">'+t.bar.map(function(x){return '<i class="'+x+'"></i>'}).join('')+'</div>';
+    h+='<ul class="tl">'+t.steps.map(function(s){return '<li><span class="when">'+esc(s.when)+'</span><span class="what"><b>'+esc(s.what)+(s.tbc?' '+tbc(s.tbc):'')+(s.done?' <span class="done">Complete</span>':'')+'</b><span>'+esc(s.detail)+'</span></span></li>'}).join('')+'</ul>';
+    return h;
+  }
+  function solutionsHTML(c){
+    if(!c.solutions) return '<div class="sol"><div class="sol-i"><h4>'+tbc('solution name')+'</h4><p>'+tbc('what it does and who uses it')+'</p></div></div>';
+    return '<div class="sol">'+c.solutions.map(function(s){
+      return '<div class="sol-i"><h4>'+esc(s.name)+(s.tag?' <span class="sol-tag'+(s.tag==='Coming soon'?' soon':s.tag==='Confidential'?' conf':'')+'">'+esc(s.tag)+'</span>':'')+'</h4><p>'+esc(s.desc)+'</p>'+(s.parts&&s.parts.length?'<div class="sub">'+s.parts.map(function(p){return '<span>'+esc(p)+'</span>'}).join('')+'</div>':'')+'</div>'}).join('')+'</div>';
+  }
+  function ipHTML(c){
+    var rows=c.ip||[{asset:null,type:null,owner:null}];
+    return '<div class="tw"><table class="ip"><thead><tr><th>Asset</th><th>Type</th><th>IP owner</th></tr></thead><tbody>'+
+      rows.map(function(r){return '<tr><td>'+val(r.asset,'asset name')+'</td><td>'+val(r.type,'platform, agent, tool or integration')+'</td><td class="own">'+(r.owner==null?tbc('client, Automagic or shared'):esc(r.owner)+(r.confirm?' '+tbc('confirm'):''))+'</td></tr>'}).join('')+
+      '</tbody></table></div>';
+  }
+  function outcomesHTML(c){
+    var o=c.outcomes||[{k:"Result 1",v:null,d:null},{k:"Result 2",v:null,d:null},{k:"Result 3",v:null,d:null}];
+    return '<div class="outc">'+o.map(function(x){return '<div class="oc"><p class="k">'+esc(x.k)+'</p><p class="v">'+(x.v==null?tbc('figure'):esc(x.v))+'</p><p class="d">'+(x.d?esc(x.d):tbc('what was measured'))+'</p></div>'}).join('')+'</div>';
+  }
+  function overviewHTML(c){
+    var o=c.overview||{};
+    return '<p class="pj-overview">'+esc(o.who||c.name)+' needed '+(o.needed?esc(o.needed):tbc('X'))+' to help them '+(o.help?esc(o.help):tbc('with Y'))+'.</p>';
+  }
+  function statusHTML(c){return c.status?'<span class="status live'+(c.status==='Completed'?' ok':'')+'">'+esc(c.status)+'</span>':'<span class="status">Status TBC</span>'}
+  function servicesShort(c){return c.services?c.services.length===SERVICES.length?'Full lifecycle':c.services.map(function(k){return SERVICES.filter(function(s){return s[0]===k})[0][1]}).join(', '):tbc('services')}
+  function structShort(c){
+    var s=c.structure; if(!s) return tbc('structure');
+    var p=[]; if(s.fixed)p.push('Fixed cost'); if(s.consultancy)p.push('Consultancy'); if(s.fractional)p.push('Fractional');
+    return p.length===3?'Hybrid: fixed, consultancy, fractional':p.join(', ');
+  }
+
+  function sizeTxt(c){return c.size?SIZES[c.size]:tbc('company type')}
+  function typesHTML(c,small){
+    if(!c.types||!c.types.length) return tbc('engagement type');
+    return c.types.map(function(t,i){return '<span class="ty ty-'+t+(i===0?' main':'')+(small?' sm':'')+'">'+TYPES[t][0]+'</span>'}).join(' ');
+  }
+  document.getElementById('types-grid').innerHTML=Object.keys(TYPES).map(function(k){
+    var n=CLIENTS.filter(function(c){return (c.types||[]).indexOf(k)>-1}).length;
+    return '<div class="tycard"><span class="ty ty-'+k+' main">'+TYPES[k][0]+'</span><p>'+TYPES[k][1]+'</p><p class="tyn">'+n+' confirmed '+(n===1?'client':'clients')+'</p></div>'}).join('');
+  function grp(name,label,obj,labelOf){return '<div class="fgrp" data-g="'+name+'"><span class="flbl">'+label+'</span><button type="button" class="fbtn on" data-f="all" aria-pressed="true">All</button>'+Object.keys(obj).map(function(k){return '<button type="button" class="fbtn" data-f="'+k+'" aria-pressed="false">'+labelOf(obj[k])+'</button>'}).join('')+'</div>'}
+  var fb=grp('types','Engagement',TYPES,function(v){return v[0]})+grp('size','Company',SIZES,function(v){return v});
+  var out='',idx='',railG={};
+  CLIENTS.forEach(function(c,i){
+    railG[c.size||'tbc']=(railG[c.size||'tbc']||'')+'<li><a class="rc" href="#'+c.id+'"><span class="rc-n"><span>'+esc(c.name)+'</span>'+(c.country?flagFor(c.country):'')+'</span>'+((c.types&&c.types.length)?'<span class="ty ty-'+c.types[0]+' main sm rc-t">'+TYPES[c.types[0]][0]+'</span>':'')+'</a></li>';
+    idx+='<tr data-types="'+(c.types||[]).join(' ')+'" data-size="'+(c.size||'')+'"><td><a href="#'+c.id+'">'+esc(c.name)+'</a></td><td>'+typesHTML(c,true)+'</td><td>'+sizeTxt(c)+'</td><td>'+countryHTML(c)+'</td><td>'+esc(c.sector)+'</td><td>'+servicesShort(c)+'</td><td>'+structShort(c)+'</td><td>'+statusHTML(c)+'</td></tr>';
+    out+='<section class="sec wide proj-sec" data-types="'+(c.types||[]).join(' ')+'" data-size="'+(c.size||'')+'" id="'+c.id+'"><article class="proj">'+
+      '<div class="pj-head"><div class="pj-top"><div><p class="pj-sector">Client '+String(i+1).padStart(2,'0')+' · '+esc(c.sector)+'</p><h2>'+esc(c.name)+'</h2></div>'+statusHTML(c)+'</div>'+
+      '<div class="pj-types">'+typesHTML(c)+'</div><p class="pj-one">'+esc(c.oneLiner)+'</p>'+
+      '<dl class="pj-meta"><div><dt>Company type</dt><dd>'+sizeTxt(c)+'</dd></div><div><dt>Country</dt><dd>'+countryHTML(c)+'</dd></div><div><dt>Website</dt><dd><a href="'+esc(c.url)+'" target="_blank" rel="noopener">'+esc(c.domain)+'</a></dd></div><div><dt>Company</dt><dd>'+esc(c.legal)+'</dd></div><div><dt>Engagement</dt><dd>'+val(c.timeline&&c.timeline.start,'dates')+'</dd></div></dl></div>'+
+      '<div class="pj-body">'+
+        '<p class="sc-sh">Overview</p>'+overviewHTML(c)+
+        '<div class="grid2"><div><p class="sc-sh">Services provided</p><div class="panel">'+servicesHTML(c)+'</div></div>'+
+        '<div><p class="sc-sh">Engagement structure</p><div class="panel">'+structureHTML(c)+'</div></div></div>'+
+        '<p class="sc-sh">Timeline</p><div class="panel">'+timelineHTML(c)+'</div>'+
+        '<p class="sc-sh">Solutions delivered</p>'+solutionsHTML(c)+
+        '<p class="sc-sh">Bespoke builds and IP</p>'+ipHTML(c)+
+        '<p class="sc-sh">Outcomes</p>'+outcomesHTML(c)+
+        (c.link?'<p class="pj-link"><a class="cta" href="'+esc(c.link.href)+'"'+(/^\//.test(c.link.href)?'':' target="_blank" rel="noopener"')+'>'+esc(c.link.label)+' <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3h8v8M13 3 3 13" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></a></p>':'')+
+      '</div></article></section>';
+  });
+  document.getElementById('projects').innerHTML=out;
+  ['il','uk','us'].forEach(function(k){var e=document.getElementById('cv-'+k);if(e)e.innerHTML=FLAGS[k]});
+  document.getElementById('idx-body').innerHTML=idx;
+  document.getElementById('rail-clients').innerHTML=Object.keys(SIZES).concat(['tbc']).filter(function(k){return railG[k]}).map(function(k){return '<h6 class="rg">'+(SIZES[k]||'Company type TBC')+'</h6><ol>'+railG[k]+'</ol>'}).join('');
+  var fl=document.getElementById('filters'); fl.innerHTML=fb;
+  var sel={types:'all',size:'all'};
+  fl.addEventListener('click',function(e){
+    var b=e.target.closest('.fbtn'); if(!b)return; var g=b.parentNode;
+    sel[g.getAttribute('data-g')]=b.getAttribute('data-f');
+    [].forEach.call(g.querySelectorAll('.fbtn'),function(x){var on=x===b;x.classList.toggle('on',on);x.setAttribute('aria-pressed',on)});
+    [].forEach.call(document.querySelectorAll('[data-types]'),function(el){
+      var okT=sel.types==='all'||(' '+el.getAttribute('data-types')+' ').indexOf(' '+sel.types+' ')>-1;
+      var okS=sel.size==='all'||el.getAttribute('data-size')===sel.size;
+      el.hidden=!(okT&&okS);
+    });
+  });
+  var links=[].slice.call(document.querySelectorAll('.rail a'));
+  if(!('IntersectionObserver' in window)||!links.length)return;
+  var map={};links.forEach(function(a){map[a.getAttribute('href').slice(1)]=a});
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){links.forEach(function(a){a.classList.remove('on')});var a=map[e.target.id];if(a)a.classList.add('on')}})},{rootMargin:'-20% 0px -70% 0px'});
+  document.querySelectorAll('section.sec').forEach(function(s){io.observe(s)});
+})();
+</script>
+
+</body></html>

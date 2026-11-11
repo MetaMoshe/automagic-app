@@ -1,18 +1,19 @@
-<!doctype html><html><head><script>try{if(!localStorage.getItem('am-access'))location.replace('/welcome/?next='+encodeURIComponent(location.pathname+location.search+location.hash))}catch(e){}</script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><title>Hunter Executive Discovery Findings</title><style id="am-nav-css">
+<!doctype html><html lang="en" data-theme="dark"><head><script>try{if(!localStorage.getItem('am-access'))location.replace('/welcome/?next='+encodeURIComponent(location.pathname+location.search+location.hash))}catch(e){}</script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><title>Hunter Executive Discovery Findings</title><style id="am-nav-css">
 :root{--am-nav-h:56px}
-html{scroll-padding-top:calc(var(--am-nav-h) + 24px)}
+html{scroll-padding-top:calc(var(--am-nav-h) + 24px)!important}
 .am-nav{position:sticky;top:0;z-index:40;background:var(--navy-deep,#2C3C53);color:#F4F7FA;border-bottom:1px solid rgba(255,255,255,.12);padding-top:env(safe-area-inset-top,0px)}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .am-nav{background:#0B1018}}
 :root[data-theme="dark"] .am-nav{background:#0B1018}
 .am-nav-in{max-width:1180px;margin:0 auto;height:var(--am-nav-h);display:flex;align-items:center;gap:20px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .am-home{display:flex;align-items:center;gap:9px;color:inherit;text-decoration:none;font-family:var(--font-display);font-weight:600;font-size:16px;white-space:nowrap;flex:none}
 .am-home svg{width:24px;height:24px}
+.am-wm{display:block;height:22px;width:auto}
 .am-links{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;margin-left:auto;min-width:0}
 .am-links::-webkit-scrollbar{display:none}
 .am-links a{font-family:var(--font-body);font-size:14px;font-weight:500;color:#C5D0DC;text-decoration:none;padding:7px 12px;border-radius:999px;white-space:nowrap}
 .am-links a:hover{color:#fff;background:rgba(255,255,255,.08)}
 .am-links a[aria-current="page"]{color:#1F2B3D;background:#B6E6F0}
-@media (max-width:640px){.am-home span{display:none}.am-nav-in{gap:10px}.am-links a{font-size:13px;padding:6px 10px}}
+@media (max-width:640px){.am-home span{display:none}.am-wm{height:18px}.am-nav-in{gap:10px}.am-links a{font-size:13px;padding:6px 10px}}
 .band .topbar .brand{display:none}
 .band .topbar{justify-content:flex-start;padding-block:18px 0}
 @media (max-width:640px){.am-links a{padding:6px 8px}}
@@ -20,15 +21,14 @@ html{scroll-padding-top:calc(var(--am-nav-h) + 24px)}
 .proj{scroll-margin-top:calc(var(--am-nav-h) + 24px)!important}
 .am-more{border-top:1px solid var(--line);padding-block:40px 8px}
 .am-more h2{font-family:var(--font-display);font-size:22px;margin:0 0 16px;color:var(--navy-deep)}
-.am-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-@media (max-width:820px){.am-cards{grid-template-columns:minmax(0,1fr)}}
+.am-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .am-card{display:block;text-decoration:none;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px 18px;min-width:0}
 .am-card:hover{border-color:var(--navy)}
 .am-card b{display:block;font-family:var(--font-display);font-size:17px;color:var(--navy-deep);margin-bottom:4px}
 .am-card span{font-size:13.5px;color:var(--muted);line-height:1.45}
 .am-legal{font-size:13px;color:var(--muted);margin:18px 0 0}.am-legal a{color:var(--cyan-ink)}
 .am-card i{font-style:normal;display:block;margin-top:10px;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-ink)}
-</style></head><body><nav class="am-nav" aria-label="Site"><div class="am-nav-in"><a class="am-home" href="/"><svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="amlg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C8CED4"/><stop offset="1" stop-color="#B6E6F0"/></linearGradient></defs><path d="M31 9.5A15 15 0 1 0 31 30.5" fill="none" stroke="url(#amlg)" stroke-width="6" stroke-linecap="square"/><rect x="31" y="5" width="5" height="5" fill="#B6E6F0"/><rect x="31" y="30" width="5" height="5" fill="#C8CED4"/></svg><span>Automagic AI</span></a><div class="am-links"><a href="/">Portfolio</a><a href="/hunter/" aria-current="page">Hunter Executive</a><a href="/zugi/">Zugi.ai</a><a href="/revscale/">Revscale</a></div></div></nav>
+</style></head><body><nav class="am-nav" aria-label="Site"><div class="am-nav-in"><a class="am-home" href="/" aria-label="Automagic portfolio home"><svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="amlg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C8CED4"/><stop offset="1" stop-color="#B6E6F0"/></linearGradient></defs><path d="M31 9.5A15 15 0 1 0 31 30.5" fill="none" stroke="url(#amlg)" stroke-width="6" stroke-linecap="square"/><rect x="31" y="5" width="5" height="5" fill="#B6E6F0"/><rect x="31" y="30" width="5" height="5" fill="#C8CED4"/></svg><span>Automagic AI</span></a><div class="am-links"><a href="/">Portfolio</a><a href="/clients/">Clients</a><a href="/hunter/" aria-current="page">Hunter Executive</a><a href="/zugi/">Zugi.ai</a><a href="/revscale/">Revscale</a></div></div></nav>
 
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -491,7 +491,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   </div>
 </div>
 
-<div class="wrap am-more"><h2>Keep exploring</h2><div class="am-cards"><a class="am-card" href="/"><b>Portfolio</b><span>Every engagement at a glance</span><i>Back to portfolio →</i></a><a class="am-card" href="/zugi/"><b>Zugi.ai</b><span>Private markets · AI investment reasoning, end to end</span><i>Read the case study →</i></a><a class="am-card" href="/revscale/"><b>Revscale</b><span>Franchising · AI agent workforce and FranchiseHub</span><i>Read the case study →</i></a></div><p class="am-legal">Confidential. Shared under the <a href="/terms/">Terms of Access</a>; please do not copy or share.</p></div><footer><div class="wrap"><span>Automagic · Hunter Executive discovery findings</span><span>Published November 2026</span></div></footer>
+<div class="wrap am-more"><h2>Keep exploring</h2><div class="am-cards"><a class="am-card" href="/zugi/"><b>Zugi.ai</b><span>Private markets · AI investment reasoning, end to end</span><i>Read the case study →</i></a><a class="am-card" href="/revscale/"><b>Revscale</b><span>Franchising · AI agent workforce and FranchiseHub</span><i>Read the case study →</i></a><a class="am-card" href="/"><b>Portfolio</b><span>Featured case studies and every client at a glance</span><i>Open →</i></a><a class="am-card" href="/clients/"><b>Clients</b><span>The full profile of every engagement</span><i>Open →</i></a></div><p class="am-legal">Confidential. Shared under the <a href="/terms/">Terms of Access</a>; please do not copy or share.</p></div><footer><div class="wrap"><span>Automagic · Hunter Executive discovery findings</span><span>Published November 2026</span></div></footer>
 
 <script>
 (function(){
