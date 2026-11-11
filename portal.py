@@ -840,8 +840,8 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .label::before{content:"";width:8px;height:8px;background:var(--cyan)}
 .vh{display:grid;gap:10px;margin-bottom:24px}.vh h2{font-size:clamp(26px,3vw,34px);font-weight:600}.vh p{color:var(--muted);max-width:62ch;margin:0}
 .hero{position:relative;overflow:hidden;border:1px solid var(--line-2);border-radius:14px;padding:clamp(24px,4vw,44px);background:radial-gradient(ellipse 60% 90% at 90% 0%,rgba(127,211,228,.16),transparent 65%),linear-gradient(160deg,#10202D,var(--bg-2))}
-.hero h1{font-size:clamp(32px,4.4vw,52px);font-weight:600;line-height:1.05;margin:14px 0 12px}
-.hero h1 span{color:var(--cyan)}.hero p{color:var(--muted);max-width:62ch;margin:0;font-size:17px}
+.hero h1{font-size:clamp(32px,4.4vw,52px);font-weight:600;line-height:1.05;margin:14px 0 10px}
+.hero h1 span{color:var(--cyan)}.hero p.co{color:var(--ink);font:600 clamp(18px,2vw,22px) var(--fd);letter-spacing:-.01em;margin:-4px 0 14px}.hero p{color:var(--muted);max-width:62ch;margin:0;font-size:17px}
 .tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}
 @media (max-width:700px){.tiles{grid-template-columns:minmax(0,1fr)}}
 .tile{display:grid;gap:6px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface);text-decoration:none;color:var(--ink);transition:border-color .15s}
@@ -915,6 +915,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 {% endmacro %}
 <section class="view" id="v-home">
  <div class="hero"><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
+ {% if c.company %}<p class="co">{{ c.company }}</p>{% endif %}
  <p>This is your private space with Automagic. Reach your consultant, find proposals and agreements, view and pay invoices, and share files with our team, all in one place.</p></div>
  <div class="ov-con"><div class="vh" style="margin:26px 0 12px"><span class="label">Your Consultant</span></div>{{ con_card() }}</div>
  <div class="tiles">
