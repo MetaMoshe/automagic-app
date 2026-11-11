@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: automagic-portfolio
+    runtime: static
+    buildCommand: python3 build.py
+    staticPublishPath: ./public
+    pullRequestPreviewsEnabled: true
+    headers:
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex
