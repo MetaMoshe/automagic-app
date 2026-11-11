@@ -3,7 +3,8 @@
 Admin (session["admin"]):
   /admin/clients            list, add, edit and delete clients (a simple CRM)
   /admin/clients/<id>       client record, portal login, Stripe link, files (drag and drop)
-  /admin/consultant         the "Your Consultant" profile shown to every client
+  /admin/consultants        consultants (add, edit, delete); each client is assigned one
+                            and sees them under "Your Consultant"
 
 Clients (session["client_id"]):
   /login/                   Client Login page (static, built from src/login.html)
@@ -20,6 +21,7 @@ from flask import Blueprint, abort, jsonify, redirect, render_template_string, r
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+import admin_ui as U
 import server as S
 
 bp = Blueprint("portal", __name__)
@@ -40,6 +42,7 @@ CONSULTANT_DEFAULT = {"name": "Moshe David", "title": "Founder, Automagic AI", "
                       "bio": "I lead every Automagic engagement personally, from discovery to the tools your team uses every day. "
                              "Reach out any time with questions, ideas or anything that isn't working.",
                       "photo": ""}
+CON_FIELDS = ["name", "title", "email", "phone", "linkedin", "cal_url", "bio"]
 
 
 # ---------------------------------------------------------------- database
@@ -55,8 +58,19 @@ def init():
             "category TEXT, name TEXT NOT NULL, stored TEXT NOT NULL, size INTEGER, mime TEXT, uploaded_by TEXT)",
             "CREATE INDEX IF NOT EXISTS client_files_client ON client_files (client_id)",
             "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)",
+            f"CREATE TABLE IF NOT EXISTS consultants (id {pk}, created TEXT NOT NULL, updated TEXT, "
+            + ", ".join(f"{k} TEXT" for k in CON_FIELDS) + ", photo TEXT)",
         ):
             S.q(sql)
+        if S.DATABASE_URL:
+            S.q("ALTER TABLE clients ADD COLUMN IF NOT EXISTS consultant_id INTEGER")
+        elif "consultant_id" not in [r[1] for r in S.q("PRAGMA table_info(clients)")]:
+            S.q("ALTER TABLE clients ADD COLUMN consultant_id INTEGER")
+        if not S.q("SELECT id FROM consultants", one=True):
+            # First run: carry over the single profile that used to live in settings.
+            c = legacy_consultant()
+            S.q(f"INSERT INTO consultants (created, updated, {', '.join(CON_FIELDS)}, photo) VALUES (?, ?, {', '.join('?' * len(CON_FIELDS))}, ?)",
+                (S.now(), S.now(), *[c[k] for k in CON_FIELDS], c["photo"]))
         if not S.DATABASE_URL:
             S.db().commit()
     os.makedirs(FILES_DIR, exist_ok=True)
@@ -68,11 +82,11 @@ def commit():
 
 
 def client_row(cid):
-    r = S.q(f"SELECT id, created, updated, {', '.join(CLIENT_FIELDS)}, password_hash, portal_enabled, session_ver, last_login "
-            "FROM clients WHERE id = ?", (cid,), one=True)
+    r = S.q(f"SELECT id, created, updated, {', '.join(CLIENT_FIELDS)}, password_hash, portal_enabled, session_ver, last_login, "
+            "consultant_id FROM clients WHERE id = ?", (cid,), one=True)
     if not r:
         return None
-    keys = ["id", "created", "updated"] + CLIENT_FIELDS + ["password_hash", "portal_enabled", "session_ver", "last_login"]
+    keys = ["id", "created", "updated"] + CLIENT_FIELDS + ["password_hash", "portal_enabled", "session_ver", "last_login", "consultant_id"]
     return dict(zip(keys, r))
 
 
@@ -86,11 +100,33 @@ def files_for(cid, kind=None):
     return [dict(zip(["id", "at", "kind", "category", "name", "size", "mime", "uploaded_by"], r)) for r in rows]
 
 
-def consultant():
+def legacy_consultant():
     c = dict(CONSULTANT_DEFAULT)
     for k, v in S.q("SELECT k, v FROM settings WHERE k LIKE 'consultant.%'"):
         c[k.split(".", 1)[1]] = v or ""
     return c
+
+
+CON_KEYS = ["id"] + CON_FIELDS + ["photo"]
+
+
+def consultants():
+    rows = S.q(f"SELECT id, {', '.join(CON_FIELDS)}, photo FROM consultants ORDER BY id")
+    return [{k: (v if k == "id" else v or "") for k, v in zip(CON_KEYS, r)} for r in rows]
+
+
+def consultant_row(pid):
+    r = S.q(f"SELECT id, {', '.join(CON_FIELDS)}, photo FROM consultants WHERE id = ?", (pid,), one=True) if pid else None
+    return {k: (v if k == "id" else v or "") for k, v in zip(CON_KEYS, r)} if r else None
+
+
+def consultant_for(client):
+    """The client's assigned consultant, else the first one (the default), else the built-in profile."""
+    c = consultant_row(client.get("consultant_id")) if client else None
+    if not c:
+        r = S.q("SELECT id FROM consultants ORDER BY id", one=True)
+        c = consultant_row(r[0]) if r else None
+    return c or dict(CONSULTANT_DEFAULT, id=None)
 
 
 def set_setting(k, v):
@@ -108,7 +144,7 @@ def guards():
         origin = request.headers.get("Origin")
         if origin and urllib.parse.urlparse(origin).netloc != request.host:
             abort(403)
-    uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p in ("/portal/api/drive", "/admin/consultant")
+    uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p == "/portal/api/drive" or p.startswith("/admin/consultants/")
     limit = MAX_FILE + 1024 * 1024 if uploads else 64 * 1024
     if (request.content_length or 0) > limit:
         abort(413)
@@ -236,7 +272,11 @@ def admin_clients():
     if r:
         return r
     rows = S.q("SELECT c.id, c.company, c.contact_name, c.contact_email, c.status, c.engagement, c.portal_enabled, c.last_login, "
-               "(SELECT COUNT(*) FROM client_files f WHERE f.client_id = c.id) FROM clients c ORDER BY LOWER(c.company)")
+               "(SELECT COUNT(*) FROM client_files f WHERE f.client_id = c.id), c.consultant_id FROM clients c ORDER BY LOWER(c.company)")
+    cons = consultants()
+    names = {x["id"]: x["name"] for x in cons}
+    default = cons[0]["name"] if cons else CONSULTANT_DEFAULT["name"]
+    rows = [(*row[:9], names.get(row[9]) or default) for row in rows]
     counts = defaultdict(int)
     for row in rows:
         counts[row[4] or "Lead"] += 1
@@ -249,7 +289,7 @@ def admin_client(cid=None):
     r = admin_only()
     if r:
         return r
-    c = client_row(cid) if cid else {k: "" for k in ["id"] + CLIENT_FIELDS} | {"status": "Active", "portal_enabled": 0, "password_hash": None}
+    c = client_row(cid) if cid else {k: "" for k in ["id"] + CLIENT_FIELDS} | {"status": "Active", "portal_enabled": 0, "password_hash": None, "consultant_id": None}
     if cid and not c:
         abort(404)
     err, note, new_pw = "", request.args.get("saved") and "Saved.", ""
@@ -260,11 +300,14 @@ def admin_client(cid=None):
         vals["status"] = vals["status"] if vals["status"] in STATUSES else "Active"
         vals["engagement"] = vals["engagement"] if vals["engagement"] in S.TYPES else ""
         portal = 1 if f.get("portal_enabled") else 0
+        con_id = int(f["consultant_id"]) if (f.get("consultant_id") or "").isdigit() else None
+        con_id = con_id if consultant_row(con_id) else None
         pw = f.get("password", "").strip()
         if f.get("generate"):
             pw = new_pw = "-".join(secrets.token_urlsafe(4) for _ in range(3))
         c.update(vals)
         c["portal_enabled"] = portal
+        c["consultant_id"] = con_id
         if not vals["company"]:
             err = "Add the company name."
         elif vals["contact_email"] and not S.EMAIL_RE.match(vals["contact_email"]):
@@ -283,10 +326,10 @@ def admin_client(cid=None):
             sets = ", ".join(f"{k} = ?" for k in CLIENT_FIELDS)
             args = [vals[k] or None if k == "contact_email" else vals[k] for k in CLIENT_FIELDS]
             if cid:
-                S.q(f"UPDATE clients SET {sets}, updated = ?, portal_enabled = ? WHERE id = ?", (*args, S.now(), portal, cid))
+                S.q(f"UPDATE clients SET {sets}, updated = ?, portal_enabled = ?, consultant_id = ? WHERE id = ?", (*args, S.now(), portal, con_id, cid))
             else:
-                S.q(f"INSERT INTO clients (created, updated, {', '.join(CLIENT_FIELDS)}, portal_enabled) VALUES (?, ?, {', '.join('?' * len(CLIENT_FIELDS))}, ?)",
-                    (S.now(), S.now(), *args, portal))
+                S.q(f"INSERT INTO clients (created, updated, {', '.join(CLIENT_FIELDS)}, portal_enabled, consultant_id) VALUES (?, ?, {', '.join('?' * len(CLIENT_FIELDS))}, ?, ?)",
+                    (S.now(), S.now(), *args, portal, con_id))
                 cid = S.q("SELECT id FROM clients WHERE company = ? ORDER BY id DESC", (vals["company"],), one=True)[0]
             if pw:
                 S.q("UPDATE clients SET password_hash = ?, session_ver = COALESCE(session_ver, 1) + 1 WHERE id = ?",
@@ -302,7 +345,7 @@ def admin_client(cid=None):
     inv, inv_err = invoices(c.get("stripe_customer_id")) if cid else (None, None)
     return render_template_string(ADMIN_CLIENT, c=c, cid=cid, err=err, note=note, new_pw=new_pw, files=files,
                                   statuses=STATUSES, types=S.TYPES, doc_types=DOC_TYPES, stripe=bool(STRIPE_KEY),
-                                  inv=inv, inv_err=inv_err, login_url=request.host_url.rstrip("/") + "/login/")
+                                  inv=inv, inv_err=inv_err, login_url=request.host_url.rstrip("/") + "/login/", cons=consultants())
 
 
 @bp.post("/admin/clients/<int:cid>/delete")
@@ -371,44 +414,118 @@ def admin_file_delete(cid, fid):
     return jsonify(ok=delete_stored(cid, fid))
 
 
-@bp.route("/admin/consultant", methods=["GET", "POST"])
-def admin_consultant():
+@bp.get("/admin/consultant")
+def admin_consultant_old():
+    return redirect("/admin/consultants")
+
+
+@bp.get("/admin/consultants")
+def admin_consultants():
     r = admin_only()
     if r:
         return r
-    note = ""
-    if request.method == "POST":
-        for k in ("name", "title", "email", "phone", "linkedin", "cal_url", "bio"):
-            set_setting("consultant." + k, S.clip(request.form.get(k), 3000 if k == "bio" else 300))
-        photo = request.files.get("photo")
-        if photo and photo.filename:
-            mime = mimetypes.guess_type(photo.filename)[0]
-            data = photo.read(5 * 1024 * 1024 + 1)
-            if mime in ("image/png", "image/jpeg", "image/webp") and 0 < len(data) <= 5 * 1024 * 1024:
-                folder = os.path.join(FILES_DIR, "consultant")
-                os.makedirs(folder, exist_ok=True)
-                old = consultant().get("photo")
-                name = secrets.token_hex(8) + mimetypes.guess_extension(mime).replace(".jpe", ".jpg")
-                with open(os.path.join(folder, name), "wb") as out:
-                    out.write(data)
-                set_setting("consultant.photo", name)
-                if old:
-                    try:
-                        os.remove(os.path.join(folder, os.path.basename(old)))
-                    except OSError:
-                        pass
-            else:
-                note = "Photo not saved: use a PNG, JPG or WebP under 5 MB. "
-        commit()
-        note += "Saved."
-    return render_template_string(ADMIN_CONSULTANT, c=consultant(), note=note)
+    counts = dict(S.q("SELECT consultant_id, COUNT(*) FROM clients WHERE consultant_id IS NOT NULL GROUP BY consultant_id"))
+    unassigned = S.q("SELECT COUNT(*) FROM clients WHERE consultant_id IS NULL", one=True)[0]
+    cons = consultants()
+    if cons:
+        counts[cons[0]["id"]] = counts.get(cons[0]["id"], 0) + unassigned
+    return render_template_string(ADMIN_CONSULTANTS, cons=cons, counts=counts, note="Deleted." if request.args.get("deleted") else "")
 
 
-@bp.get("/consultant-photo")
-def consultant_photo():
-    if not (session.get("admin") or current_client()):
+def save_photo(photo, old):
+    """Store an uploaded consultant photo; return the new file name, or None if it isn't a valid image."""
+    mime = mimetypes.guess_type(photo.filename)[0]
+    data = photo.read(5 * 1024 * 1024 + 1)
+    if mime not in ("image/png", "image/jpeg", "image/webp") or not 0 < len(data) <= 5 * 1024 * 1024:
+        return None
+    folder = os.path.join(FILES_DIR, "consultant")
+    os.makedirs(folder, exist_ok=True)
+    name = secrets.token_hex(8) + mimetypes.guess_extension(mime).replace(".jpe", ".jpg")
+    with open(os.path.join(folder, name), "wb") as out:
+        out.write(data)
+    remove_photo(old)
+    return name
+
+
+def remove_photo(name):
+    if name:
+        try:
+            os.remove(os.path.join(FILES_DIR, "consultant", os.path.basename(name)))
+        except OSError:
+            pass
+
+
+@bp.route("/admin/consultants/new", methods=["GET", "POST"])
+@bp.route("/admin/consultants/<int:pid>", methods=["GET", "POST"])
+def admin_consultant(pid=None):
+    r = admin_only()
+    if r:
+        return r
+    c = consultant_row(pid) if pid else {k: "" for k in CON_KEYS} | {"id": None, "cal_url": CAL_URL}
+    if pid and not c:
         abort(404)
-    name = os.path.basename(consultant().get("photo") or "")
+    err, note = "", "Saved." if request.args.get("saved") else ""
+    if request.method == "POST":
+        vals = {k: S.clip(request.form.get(k), 3000 if k == "bio" else 300) for k in CON_FIELDS}
+        vals["email"] = vals["email"].lower()
+        c.update(vals)
+        if not vals["name"]:
+            err = "Add the consultant's name."
+        elif vals["email"] and not S.EMAIL_RE.match(vals["email"]):
+            err = "The email doesn't look right."
+        else:
+            sets = ", ".join(f"{k} = ?" for k in CON_FIELDS)
+            if pid:
+                S.q(f"UPDATE consultants SET {sets}, updated = ? WHERE id = ?", (*[vals[k] for k in CON_FIELDS], S.now(), pid))
+            else:
+                S.q(f"INSERT INTO consultants (created, updated, {', '.join(CON_FIELDS)}, photo) VALUES (?, ?, {', '.join('?' * len(CON_FIELDS))}, '')",
+                    (S.now(), S.now(), *[vals[k] for k in CON_FIELDS]))
+                pid = S.q("SELECT id FROM consultants ORDER BY id DESC", one=True)[0]
+            photo = request.files.get("photo")
+            bad_photo = False
+            if photo and photo.filename:
+                name = save_photo(photo, c.get("photo"))
+                if name:
+                    S.q("UPDATE consultants SET photo = ? WHERE id = ?", (name, pid))
+                else:
+                    bad_photo = True
+            commit()
+            return redirect(f"/admin/consultants/{pid}?saved=1" + ("&photo=bad" if bad_photo else ""))
+    if request.args.get("photo") == "bad":
+        note = "Saved, but the photo wasn't: use a PNG, JPG or WebP under 5 MB."
+    first = S.q("SELECT id FROM consultants ORDER BY id", one=True)
+    nclients = S.q("SELECT COUNT(*) FROM clients WHERE consultant_id = ?", (pid,), one=True)[0] if pid else 0
+    return render_template_string(ADMIN_CONSULTANT, c=c, pid=pid, err=err, note=note, nclients=nclients,
+                                  is_default=bool(pid and first and first[0] == pid))
+
+
+@bp.post("/admin/consultants/<int:pid>/delete")
+def admin_consultant_delete(pid):
+    r = admin_only()
+    if r:
+        return r
+    c = consultant_row(pid)
+    if not c:
+        abort(404)
+    if request.form.get("confirm") != "DELETE":
+        return redirect(f"/admin/consultants/{pid}")
+    S.q("UPDATE clients SET consultant_id = NULL WHERE consultant_id = ?", (pid,))
+    S.q("DELETE FROM consultants WHERE id = ?", (pid,))
+    commit()
+    remove_photo(c.get("photo"))
+    return redirect("/admin/consultants?deleted=1")
+
+
+@bp.get("/consultant-photo/<int:pid>")
+def consultant_photo(pid):
+    if session.get("admin"):
+        c = consultant_row(pid)
+    else:
+        client = current_client()
+        c = consultant_for(client) if client else None
+        if not c or c.get("id") != pid:
+            abort(404)
+    name = os.path.basename((c or {}).get("photo") or "")
     path = os.path.join(FILES_DIR, "consultant", name)
     if not name or not os.path.isfile(path):
         abort(404)
@@ -455,7 +572,7 @@ def portal():
         return redirect("/login/")
     inv, inv_err = invoices(c["stripe_customer_id"])
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
-    return render_template_string(PORTAL, c=c, first=first, con=consultant(), legal=files_for(c["id"], "legal"),
+    return render_template_string(PORTAL, c=c, first=first, con=consultant_for(c), legal=files_for(c["id"], "legal"),
                                   drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
@@ -546,63 +663,18 @@ def ext(name):
 S.app.jinja_env.filters["fsize"] = size
 S.app.jinja_env.filters["ext"] = ext
 
-ADMIN_HEAD = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{% block t %}Clients{% endblock %} · Automagic Admin</title><meta name="robots" content="noindex">""" + S.FONTS + "<style>" + S.BASE_CSS + """
-header{background:var(--band);border-bottom:1px solid var(--line)}
-.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
-header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;height:60px}
-header h1{font-size:18px;margin:0}header form{margin:0}
-nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:24px 0 8px}
-nav.tabs a{padding:7px 14px;border-radius:999px;border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:14px}
-nav.tabs a:hover,nav.tabs a.on{color:var(--ink);border-color:var(--cyan)}
-section{margin:24px 0}h2{font-size:22px;margin:0 0 12px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
-.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
-table{border-collapse:collapse;width:100%;font-size:14px}th{font:500 11px "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;background:var(--cyan-soft);white-space:nowrap}
-td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:middle}
-tr.rowlink{cursor:pointer}tr.rowlink:hover td{background:rgba(127,207,224,.05)}
-.pill{font:500 11px "IBM Plex Mono",monospace;padding:2px 8px;border-radius:999px;background:var(--cyan-soft);color:var(--cyan);white-space:nowrap}
-.pill.off{background:transparent;border:1px solid var(--line);color:var(--muted)}
-.empty{color:var(--muted)}
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}
-.grid .full{grid-column:1/-1}
-@media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
-label.f{display:block;font:500 11px "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
-input[type=text],input[type=email],input[type=url],input[type=tel],input[type=password],select,textarea{width:100%;font:15px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px}
-textarea{min-height:110px;resize:vertical}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan)}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.check{display:flex;gap:10px;align-items:center;font-size:14.5px}
-.err{color:#F2B8B5}.ok{color:#7FD3A6}
-.danger{background:transparent;color:#F2B8B5;border:1px solid #5a2a2a}
-.secret{font:500 16px "IBM Plex Mono",monospace;background:var(--bg);border:1px dashed var(--cyan);border-radius:10px;padding:12px 14px;user-select:all}
-.drop{border:1.5px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);transition:border-color .15s,background .15s;cursor:pointer}
-.drop.over{border-color:var(--cyan);background:rgba(127,207,224,.06);color:var(--ink)}
-.drop b{color:var(--ink)}
-.files{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
-.files li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
-.files .ic{font:600 10px "IBM Plex Mono",monospace;width:38px;height:44px;border-radius:5px;display:grid;place-items:end center;padding-bottom:6px;background:var(--cyan-soft);color:var(--cyan)}
-.files .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.files .nm small{display:block;color:var(--muted);font-size:12.5px}
-.files button{padding:6px 12px;font-size:13px}
-.split{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px;align-items:start}
-@media (max-width:960px){.split{grid-template-columns:minmax(0,1fr)}}
-</style></head><body>
-<header><div class="wrap"><h1>Automagic · Admin</h1><form method="post" action="/admin/logout"><button class="ghost" type="submit">Sign out</button></form></div></header>
-<main class="wrap"><nav class="tabs" aria-label="Admin"><a href="/admin">Analytics</a><a href="/admin/clients" class="{% block navc %}{% endblock %}">Clients</a><a href="/admin/consultant" class="{% block navp %}{% endblock %}">Consultant profile</a><a href="/portal/" target="_blank">Client portal</a></nav>
-"""
-ADMIN_FOOT = "</main></body></html>"
+ADMIN_FOOT = U.FOOT
 
-ADMIN_LIST = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
+ADMIN_LIST = U.head("clients", "Clients") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Clients</h2><a class="btn" href="/admin/clients/new">Add client</a></div>
 <p class="mono" style="margin:10px 0 16px;text-transform:none;letter-spacing:0">{% for s in statuses %}{{ s }}: {{ counts[s] }}{% if not loop.last %} · {% endif %}{% endfor %}{% if not stripe %} · Stripe not connected (set STRIPE_SECRET_KEY){% endif %}</p>
-{% if rows %}<div class="tw"><table><thead><tr><th>Company</th><th>Contact</th><th>Status</th><th>Engagement</th><th>Portal</th><th>Files</th><th>Last login (UTC)</th></tr></thead><tbody>
-{% for id, company, name, email, status, eng, portal, last, nfiles in rows %}<tr class="rowlink" onclick="location='/admin/clients/{{ id }}'"><td><a href="/admin/clients/{{ id }}">{{ company }}</a></td><td>{{ name or '' }}{% if email %}<br><span class="mono" style="text-transform:none;letter-spacing:0">{{ email }}</span>{% endif %}</td>
-<td><span class="pill{% if status != 'Active' %} off{% endif %}">{{ status or 'Lead' }}</span></td><td>{{ eng or '' }}</td><td>{% if portal %}<span class="pill">On</span>{% else %}<span class="pill off">Off</span>{% endif %}</td><td>{{ nfiles }}</td><td>{{ (last or '')[:16]|replace('T',' ') }}</td></tr>{% endfor %}
+{% if rows %}<div class="tw"><table><thead><tr><th>Company</th><th>Contact</th><th>Status</th><th>Engagement</th><th>Consultant</th><th>Portal</th><th>Files</th><th>Last login (UTC)</th></tr></thead><tbody>
+{% for id, company, name, email, status, eng, portal, last, nfiles, con in rows %}<tr class="rowlink" onclick="location='/admin/clients/{{ id }}'"><td><a href="/admin/clients/{{ id }}">{{ company }}</a></td><td>{{ name or '' }}{% if email %}<br><span class="mono" style="text-transform:none;letter-spacing:0">{{ email }}</span>{% endif %}</td>
+<td><span class="pill{% if status != 'Active' %} off{% endif %}">{{ status or 'Lead' }}</span></td><td>{{ eng or '' }}</td><td>{{ con }}</td><td>{% if portal %}<span class="pill">On</span>{% else %}<span class="pill off">Off</span>{% endif %}</td><td>{{ nfiles }}</td><td>{{ (last or '')[:16]|replace('T',' ') }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No clients yet. Add your first client to give them a portal login and share documents.</div>{% endif %}
 </section>""" + ADMIN_FOOT
 
-ADMIN_CLIENT = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
+ADMIN_CLIENT = U.head("clients", "Client") + """
 <section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company or 'New client' }}</h2>
 {% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
 {% if request.args.get('stripe_error') %}<p class="err" role="alert">Stripe: {{ request.args.get('stripe_error') }}</p>{% endif %}
@@ -616,7 +688,8 @@ ADMIN_CLIENT = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
   <div><label class="f" for="industry">Industry</label><input type="text" id="industry" name="industry" value="{{ c.industry or '' }}"></div>
   <div><label class="f" for="country">Country</label><input type="text" id="country" name="country" value="{{ c.country or '' }}"></div>
   <div><label class="f" for="status">Status</label><select id="status" name="status">{% for s in statuses %}<option{% if c.status == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
-  <div class="full"><label class="f" for="engagement">Engagement type</label><select id="engagement" name="engagement"><option value="">Not set</option>{% for t in types %}<option{% if c.engagement == t %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+  <div><label class="f" for="engagement">Engagement type</label><select id="engagement" name="engagement"><option value="">Not set</option>{% for t in types %}<option{% if c.engagement == t %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+  <div><label class="f" for="consultant_id">Consultant</label><select id="consultant_id" name="consultant_id"><option value="">Default{% if cons %} ({{ cons[0].name }}){% endif %}</option>{% for x in cons %}<option value="{{ x.id }}"{% if c.consultant_id == x.id %} selected{% endif %}>{{ x.name }}{% if x.title %} · {{ x.title }}{% endif %}</option>{% endfor %}</select></div>
   <div class="full"><label class="f" for="address">Address</label><textarea id="address" name="address" style="min-height:70px">{{ c.address or '' }}</textarea></div>
  </div>
  <p class="mono" style="margin-top:22px">Main contact</p>
@@ -688,19 +761,32 @@ ADMIN_CLIENT = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
 })();
 </script>""" + ADMIN_FOOT
 
-ADMIN_CONSULTANT = ADMIN_HEAD.replace("{% block navp %}{% endblock %}", "on") + """
-<section><h2>Consultant profile</h2><p class="empty" style="margin:0 0 16px">Shown to every client under Your Consultant in the portal.</p>
+ADMIN_CONSULTANTS = U.head("consultants", "Consultants") + """
+<section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Consultants</h2><a class="btn" href="/admin/consultants/new">Add consultant</a></div>
+<p class="empty" style="margin:10px 0 16px">Each client sees their assigned consultant under Your Consultant. Clients with no consultant assigned see the default, the first one listed.</p>
 {% if note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+{% if cons %}<div class="tw"><table><thead><tr><th>Name</th><th>Title</th><th>Email</th><th>Clients</th></tr></thead><tbody>
+{% for x in cons %}<tr class="rowlink" onclick="location='/admin/consultants/{{ x.id }}'"><td><a href="/admin/consultants/{{ x.id }}">{{ x.name }}</a>{% if loop.first %} <span class="pill">Default</span>{% endif %}</td><td>{{ x.title }}</td><td>{{ x.email }}</td><td>{{ counts.get(x.id, 0) }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="card empty">No consultants yet. Clients see the built-in Automagic profile until you add one.</div>{% endif %}
+</section>""" + ADMIN_FOOT
+
+ADMIN_CONSULTANT = U.head("consultants", "Consultant") + """
+<section><p><a href="/admin/consultants">← All consultants</a></p><h2>{{ c.name or 'New consultant' }}{% if is_default %} <span class="pill">Default</span>{% endif %}</h2>
+{% if pid %}<p class="empty" style="margin:0 0 16px">Assigned to {{ nclients }} client{{ '' if nclients == 1 else 's' }}{% if is_default %}, and shown to every client with no consultant assigned{% endif %}.</p>{% endif %}
+{% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
 <form class="card" method="post" enctype="multipart/form-data" style="max-width:760px"><div class="grid">
- <div class="full row" style="gap:16px">{% if c.photo %}<img src="/consultant-photo" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover">{% endif %}<div style="flex:1;min-width:200px"><label class="f" for="photo">Photo (PNG, JPG or WebP)</label><input type="file" id="photo" name="photo" accept="image/png,image/jpeg,image/webp"></div></div>
- <div><label class="f" for="name">Name</label><input type="text" id="name" name="name" value="{{ c.name }}"></div>
+ <div class="full row" style="gap:16px">{% if c.photo %}<img src="/consultant-photo/{{ pid }}" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover">{% endif %}<div style="flex:1;min-width:200px"><label class="f" for="photo">Photo (PNG, JPG or WebP)</label><input type="file" id="photo" name="photo" accept="image/png,image/jpeg,image/webp"></div></div>
+ <div><label class="f" for="name">Name</label><input type="text" id="name" name="name" value="{{ c.name }}" required></div>
  <div><label class="f" for="title">Title</label><input type="text" id="title" name="title" value="{{ c.title }}"></div>
  <div><label class="f" for="email">Email</label><input type="email" id="email" name="email" value="{{ c.email }}"></div>
  <div><label class="f" for="phone">Phone</label><input type="tel" id="phone" name="phone" value="{{ c.phone }}"></div>
  <div class="full"><label class="f" for="linkedin">LinkedIn</label><input type="url" id="linkedin" name="linkedin" value="{{ c.linkedin }}" placeholder="https://www.linkedin.com/in/..."></div>
- <div class="full"><label class="f" for="cal_url">Booking link</label><input type="url" id="cal_url" name="cal_url" value="{{ c.cal_url }}"></div>
+ <div class="full"><label class="f" for="cal_url">Booking link</label><input type="url" id="cal_url" name="cal_url" value="{{ c.cal_url }}" placeholder="https://cal.com/..."></div>
  <div class="full"><label class="f" for="bio">Bio</label><textarea id="bio" name="bio">{{ c.bio }}</textarea></div>
-</div><div class="row" style="margin-top:18px"><button type="submit">Save profile</button></div></form></section>""" + ADMIN_FOOT
+</div><div class="row" style="margin-top:18px"><button type="submit">{% if pid %}Save profile{% else %}Add consultant{% endif %}</button></div></form>
+{% if pid %}<form class="card" method="post" action="/admin/consultants/{{ pid }}/delete" style="max-width:760px;margin-top:18px"><p class="mono">Delete consultant</p><p class="empty" style="font-size:14px;margin:4px 0 10px">Their clients move to the default consultant. This can't be undone. Type DELETE to confirm.</p>
+ <div class="row"><input type="text" name="confirm" aria-label="Type DELETE to confirm" style="max-width:160px" autocomplete="off"><button class="danger" type="submit">Delete consultant</button></div></form>{% endif %}
+</section>""" + ADMIN_FOOT
 
 ICON = {
  "home": '<path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/>',
@@ -828,7 +914,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 <section class="view" id="v-consultant" hidden>
  <div class="vh"><span class="label">Your Consultant</span><h2>Here to help, every step of the way</h2></div>
  <div class="card con">
-  {% if con.photo %}<img class="ph" src="/consultant-photo" alt="{{ con.name }}" width="150" height="150">{% else %}<div class="ph" aria-hidden="true">{{ con.name[:1] }}</div>{% endif %}
+  {% if con.photo %}<img class="ph" src="/consultant-photo/{{ con.id }}" alt="{{ con.name }}" width="150" height="150">{% else %}<div class="ph" aria-hidden="true">{{ con.name[:1] }}</div>{% endif %}
   <div><h3>{{ con.name }}</h3><p class="t">{{ con.title }}</p><p class="bio">{{ con.bio }}</p>
    <div class="links">
     {% if con.email %}<a class="ib" href="mailto:{{ con.email }}">{{ icon('mail')|safe }}{{ con.email }}</a>{% endif %}

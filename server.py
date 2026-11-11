@@ -289,7 +289,7 @@ def admin_login():
             session.clear()
             session.permanent = True
             session["admin"] = True
-            return redirect("/admin")
+            return redirect("/admin/inbox")
         else:
             _fails[key].append(time.time())
             err = "That password is not right."
@@ -302,60 +302,12 @@ def admin_logout():
     return redirect("/admin/login")
 
 
-@app.get("/admin")
-@app.get("/admin/")
-def admin_home():
-    r = admin_required()
-    if r:
-        return r
-    days = 30
-    since = (datetime.now(timezone.utc) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
-    since7 = (datetime.now(timezone.utc) - timedelta(days=6)).strftime("%Y-%m-%d")
-    visits = q("SELECT at, path, ref, vid, device, email, country, city FROM visits WHERE at >= ? ORDER BY at", (since,))
-    v7 = [v for v in visits if v[0] >= since7]
-    by_day = defaultdict(lambda: [0, set()])
-    pages, refs, devices = defaultdict(int), defaultdict(int), defaultdict(int)
-    countries, cities = defaultdict(set), defaultdict(set)
-    for at, path, ref, vid, dev, _, country, city in visits:
-        countries[country or "Unknown"].add(vid)
-        if city:
-            cities[f"{city}, {country}"].add(vid)
-        by_day[at[:10]][0] += 1
-        by_day[at[:10]][1].add(vid)
-        pages[path] += 1
-        refs[ref or "Direct or unknown"] += 1
-        devices[dev] += 1
-    today = datetime.now(timezone.utc).date()
-    series = []
-    for i in range(days - 1, -1, -1):
-        d = (today - timedelta(days=i)).isoformat()
-        series.append((d, by_day[d][0], len(by_day[d][1])))
-    peak = max([s[1] for s in series] + [1])
-    access = q("SELECT at, email, page, country, city FROM access ORDER BY at DESC LIMIT 500")
-    leads = q("SELECT at, name, company, website, email, engagement, notes, page, access_email FROM leads ORDER BY at DESC LIMIT 500")
-    people = q("SELECT email, COUNT(*), MAX(at), COUNT(DISTINCT path) FROM visits WHERE email IS NOT NULL GROUP BY email ORDER BY MAX(at) DESC LIMIT 200")
-    last_place = {}
-    for email, country, city in q("SELECT email, country, city FROM visits WHERE email IS NOT NULL AND country IS NOT NULL ORDER BY at"):
-        last_place[email] = ", ".join(x for x in (city, country) if x)
-    tot_access = q("SELECT COUNT(*), COUNT(DISTINCT email) FROM access", one=True)
-    tot_leads = q("SELECT COUNT(*) FROM leads", one=True)[0]
-    leads7 = q("SELECT COUNT(*) FROM leads WHERE at >= ?", (since7,), one=True)[0]
-    access7 = q("SELECT COUNT(DISTINCT email) FROM access WHERE at >= ?", (since7,), one=True)[0]
-    top = lambda dct, n=10: sorted(dct.items(), key=lambda x: -x[1])[:n]
-    return render_template_string(
-        DASH_HTML, series=series, peak=peak, pages=top(pages), refs=top(refs), devices=top(devices, 3),
-        countries=top({k: len(v) for k, v in countries.items()}), cities=top({k: len(v) for k, v in cities.items()}),
-        last_place=last_place,
-        total_visits=len(visits), v7=len(v7), u7=len({v[3] for v in v7}), access=access, leads=leads,
-        people=people, tot_access=tot_access, tot_leads=tot_leads, leads7=leads7, access7=access7, days=days)
-
-
 @app.get("/admin/export/<name>.csv")
 def admin_export(name):
     r = admin_required()
     if r:
         return r
-    cols = {"access": "at, email, page, country, city", "leads": "at, name, company, website, email, engagement, notes, page, access_email",
+    cols = {"access": "at, email, page, country, city", "leads": "at, name, company, website, email, engagement, notes, page, access_email, status, admin_notes",
             "visits": "at, path, ref, vid, device, email, country, city"}
     if name not in cols:
         abort(404)
@@ -405,111 +357,26 @@ def headers(resp):
 
 
 # ---------------------------------------------------------------- admin pages
-BASE_CSS = """
-:root{--bg:#0F151E;--surface:#161F2B;--ink:#E5EBF2;--muted:#9AA8B9;--line:#263243;--navy:#A9BEDA;--cyan:#7FCFE0;--cyan-soft:#16303A;--band:#18263A;color-scheme:dark}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
-a{color:var(--cyan)}h1,h2{font-family:"Space Grotesk",Inter,sans-serif;font-weight:600;letter-spacing:-.01em}
-.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-button,.btn{font:600 14px Inter,sans-serif;border:0;border-radius:999px;padding:10px 18px;background:var(--cyan);color:#0F151E;cursor:pointer;text-decoration:none;display:inline-block}
-.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
-"""
-FONTS = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">'
+from admin_ui import BASE_CSS, FONTS  # noqa: E402
 
 LOGIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Portfolio Admin</title><meta name="robots" content="noindex">""" + FONTS + """<style>""" + BASE_CSS + """
+<title>Automagic Admin</title><meta name="robots" content="noindex">""" + FONTS + """<style>""" + BASE_CSS + """
 main{min-height:100vh;display:grid;place-items:center;padding:16px}
 form{width:min(100%,380px);background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:28px}
 label{display:block;margin:18px 0 8px}input{width:100%;font:16px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:12px}
 input:focus{outline:none;border-color:var(--cyan)}button{width:100%;margin-top:16px;padding:13px}.err{color:#F2B8B5;font-size:14px;min-height:20px;margin:10px 0 0}
-</style></head><body><main><form method="post"><p class="mono">Automagic portfolio</p><h1 style="margin:4px 0 0">Admin sign in</h1>
+</style></head><body><main><form method="post"><p class="mono">Automagic</p><h1 style="margin:4px 0 0">Admin sign in</h1>
 <label for="pw" class="mono">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
 <p class="err" role="alert">{{ err }}</p><button type="submit">Sign in</button></form></main></body></html>"""
-
-DASH_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Portfolio Admin</title><meta name="robots" content="noindex">""" + FONTS + """<style>""" + BASE_CSS + """
-header{background:var(--band);border-bottom:1px solid var(--line)}
-.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
-header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;height:60px}
-header h1{font-size:18px;margin:0}header form{margin:0}
-nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:24px 0 8px}
-nav.tabs a{padding:7px 14px;border-radius:999px;border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:14px}
-nav.tabs a:hover{color:var(--ink)}
-section{margin:28px 0}h2{font-size:22px;margin:0 0 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-h2 a{font:500 13px Inter,sans-serif}
-.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-@media (max-width:820px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-.tile b{display:block;font:600 30px "Space Grotesk",sans-serif;margin:6px 0 2px}.tile span{color:var(--muted);font-size:13px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px}
-.chart{display:flex;align-items:flex-end;gap:3px;height:160px;padding-top:8px}
-.chart div{flex:1;background:var(--cyan);border-radius:3px 3px 0 0;min-height:2px;opacity:.85}
-.chart div:hover{opacity:1}
-.axis{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:6px}
-.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-@media (max-width:900px){.grid2{grid-template-columns:minmax(0,1fr)}}
-.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-@media (max-width:900px){.grid3{grid-template-columns:minmax(0,1fr)}}
-.bars{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.bars li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:14px}
-.bars li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bars li i{grid-column:1/-1;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
-.bars li i b{display:block;height:100%;background:var(--navy)}
-.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
-table{border-collapse:collapse;width:100%;font-size:14px}th{font:500 11px "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;background:var(--cyan-soft);white-space:nowrap}
-td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}td.nw{white-space:nowrap}
-.note{white-space:pre-wrap;max-width:420px;color:var(--muted)}
-.empty{color:var(--muted);padding:16px}
-.pill{font:500 11px "IBM Plex Mono",monospace;padding:2px 8px;border-radius:999px;background:var(--cyan-soft);color:var(--cyan);white-space:nowrap}
-</style></head><body>
-<header><div class="wrap"><h1>Automagic portfolio · Admin</h1><form method="post" action="/admin/logout"><button class="ghost" type="submit">Sign out</button></form></div></header>
-<main class="wrap">
-<nav class="tabs" aria-label="Sections"><a href="/admin/clients">Clients</a><a href="/admin/consultant">Consultant profile</a><a href="#overview">Overview</a><a href="#leads">Leads ({{ tot_leads }})</a><a href="#access">Access emails ({{ tot_access[1] }})</a><a href="#people">Visitor activity</a><a href="/" target="_blank">Open site</a></nav>
-
-<section id="overview"><h2>Last 7 days</h2>
-<div class="tiles">
-<div class="tile"><span class="mono">Page views</span><b>{{ v7 }}</b><span>{{ total_visits }} in {{ days }} days</span></div>
-<div class="tile"><span class="mono">Unique visitors</span><b>{{ u7 }}</b><span>by browser</span></div>
-<div class="tile"><span class="mono">New access sign-ups</span><b>{{ access7 }}</b><span>{{ tot_access[1] }} unique emails in total</span></div>
-<div class="tile"><span class="mono">Book a Call leads</span><b>{{ leads7 }}</b><span>{{ tot_leads }} in total</span></div>
-</div></section>
-
-<section><h2>Page views, last {{ days }} days <a href="/admin/export/visits.csv">Download CSV</a></h2>
-<div class="card"><div class="chart" role="img" aria-label="Daily page views for the last {{ days }} days">
-{% for d, n, u in series %}<div style="height:{{ (n / peak * 100)|round(1) }}%" title="{{ d }}: {{ n }} views, {{ u }} visitors"></div>{% endfor %}
-</div><div class="axis"><span>{{ series[0][0] }}</span><span>Today</span></div></div></section>
-
-<section><div class="grid3">
-<div class="card"><p class="mono">Top pages</p>{% if pages %}<ul class="bars">{% for k, n in pages %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / pages[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
-<div class="card"><p class="mono">Referrers</p>{% if refs %}<ul class="bars">{% for k, n in refs %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / refs[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
-<div class="card"><p class="mono">Devices</p>{% if devices %}<ul class="bars">{% for k, n in devices %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / devices[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
-</div></section>
-
-<section><div class="grid2">
-<div class="card"><p class="mono">Countries · visitors</p>{% if countries %}<ul class="bars">{% for k, n in countries %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / countries[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
-<div class="card"><p class="mono">Cities · visitors</p>{% if cities %}<ul class="bars">{% for k, n in cities %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / cities[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No city data yet.</p>{% endif %}</div>
-</div></section>
-
-<section id="leads"><h2>Book a Call leads <a href="/admin/export/leads.csv">Download CSV</a></h2>
-{% if leads %}<div class="tw"><table><thead><tr><th>Received (UTC)</th><th>Name</th><th>Company</th><th>Email</th><th>Engagement</th><th>Anything we should know</th></tr></thead><tbody>
-{% for at, name, company, website, email, eng, notes, page, ae in leads %}<tr><td class="nw">{{ at[:16]|replace('T',' ') }}</td><td>{{ name }}</td><td>{{ company }}{% if website %}<br><a href="{{ website if website.startswith('http') else 'https://' ~ website }}" target="_blank" rel="noopener noreferrer">{{ website }}</a>{% endif %}</td><td><a href="mailto:{{ email }}">{{ email }}</a>{% if ae and ae != email %}<br><span class="mono">access: {{ ae }}</span>{% endif %}</td><td>{% if eng %}<span class="pill">{{ eng }}</span>{% endif %}</td><td class="note">{{ notes }}</td></tr>{% endfor %}
-</tbody></table></div>{% else %}<div class="card empty">No leads yet. They appear here when someone sends the Book a Call form.</div>{% endif %}</section>
-
-<section id="access"><h2>Access emails <a href="/admin/export/access.csv">Download CSV</a></h2>
-{% if access %}<div class="tw"><table><thead><tr><th>Signed up (UTC)</th><th>Email</th><th>First page asked for</th><th>Location</th></tr></thead><tbody>
-{% for at, email, page, country, city in access %}<tr><td class="nw">{{ at[:16]|replace('T',' ') }}</td><td><a href="mailto:{{ email }}">{{ email }}</a></td><td>{{ page }}</td><td>{{ [city, country]|select|join(', ') }}</td></tr>{% endfor %}
-</tbody></table></div>{% else %}<div class="card empty">No sign-ups yet.</div>{% endif %}</section>
-
-<section id="people"><h2>Visitor activity by email</h2>
-{% if people %}<div class="tw"><table><thead><tr><th>Email</th><th>Page views</th><th>Pages seen</th><th>Last seen (UTC)</th><th>Location</th></tr></thead><tbody>
-{% for email, n, last, distinct in people %}<tr><td>{{ email }}</td><td>{{ n }}</td><td>{{ distinct }}</td><td class="nw">{{ last[:16]|replace('T',' ') }}</td><td>{{ last_place.get(email, '') }}</td></tr>{% endfor %}
-</tbody></table></div>{% else %}<div class="card empty">No signed-in visits yet.</div>{% endif %}</section>
-<p class="mono" style="margin:32px 0 40px;text-transform:none;letter-spacing:0">Locations are approximate, from <a href="https://db-ip.com">IP Geolocation by DB-IP</a>.</p>
-</main></body></html>"""
 
 init_db()
 
 import portal  # noqa: E402  (client portal + CRM; imports this module)
 portal.init()
 app.register_blueprint(portal.bp)
+import admin  # noqa: E402  (left-menu admin: inbox, analytics, lead CRM, visitors)
+admin.init()
+app.register_blueprint(admin.bp)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)
