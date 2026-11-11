@@ -111,8 +111,6 @@ footer a{color:inherit}
 <footer><div class="wrap"><span>© 2026 Automagic AI</span><span><a href="/terms/">Terms and privacy</a></span></div></footer>
 
 <script>
-/* FORM_ENDPOINT is filled in by build.py. Empty = emails are kept in the visitor's browser only. */
-var FORM_ENDPOINT = "";
 (function(){
   var f=document.getElementById('gate'), em=document.getElementById('email'), ag=document.getElementById('agree'),
       err=document.getElementById('err'), go=document.getElementById('go');
@@ -125,16 +123,17 @@ var FORM_ENDPOINT = "";
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)){err.textContent='Please enter a valid email address.';em.focus();return}
     if(!ag.checked){err.textContent='Please accept the terms to continue.';ag.focus();return}
     err.textContent=''; go.disabled=true;
-    var rec={email:v, agreedTerms:true, at:new Date().toISOString(), page:next};
-    try{ localStorage.setItem('am-access',JSON.stringify(rec)); }catch(e){}
-    var done=function(){ location.replace(next) };
-    if(FORM_ENDPOINT && FORM_ENDPOINT.indexOf('%%')!==0){
-      fetch(FORM_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(rec)})
-        .catch(function(){}).then(done);
-      setTimeout(done,2500);
-    } else done();
+    var rec={email:v, agreedTerms:true, page:next};
+    fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec),credentials:'same-origin'})
+      .then(function(r){return r.json().then(function(j){return {ok:r.ok&&j.ok,j:j}})})
+      .then(function(res){
+        if(!res.ok) throw new Error((res.j&&res.j.error)||'');
+        try{ localStorage.setItem('am-access',JSON.stringify({email:v,at:new Date().toISOString()})); }catch(e){}
+        location.replace(next);
+      })
+      .catch(function(x){ err.textContent=(x&&x.message)||'Something went wrong. Please try again.'; go.disabled=false; });
   });
 })();
 </script>
-</body>
+<script>(function(){try{var k='am-vid',v=localStorage.getItem(k);if(!v){v=Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem(k,v)}}catch(e){v=''}var d=JSON.stringify({path:location.pathname,ref:document.referrer,vid:v});if(navigator.sendBeacon)navigator.sendBeacon('/api/event',d);else fetch('/api/event',{method:'POST',body:d,keepalive:true}).catch(function(){})})()</script></body>
 </html>

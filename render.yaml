@@ -1,11 +1,21 @@
 services:
   - type: web
     name: automagic-portfolio
-    runtime: static
-    buildCommand: python3 build.py
-    staticPublishPath: ./public
-    pullRequestPreviewsEnabled: true
-    headers:
-      - path: /*
-        name: X-Robots-Tag
-        value: noindex
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt && python build.py
+    startCommand: gunicorn server:app --workers 2 --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    disk:
+      name: portfolio-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATA_DIR
+        value: /var/data
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        sync: false

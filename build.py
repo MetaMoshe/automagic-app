@@ -85,7 +85,7 @@ def nav(active):
     return (f'<nav class="am-nav" aria-label="Site"><div class="am-nav-in">'
             f'<a class="am-home" href="/" aria-label="Automagic portfolio home">{logo()}</a>'
             f'<div class="am-links"><a href="{WEBSITE}">Return to website</a>'
-            f'<a class="am-cta" href="{BOOK_CALL}">Book a Call</a></div></div></nav>')
+            f'<a class="am-cta" href="{BOOK_CALL}" data-am-book>Book a Call</a></div></div></nav>')
 
 
 def more(active):
@@ -164,9 +164,14 @@ def portfolio_data():
     return m.group(1)
 
 
-# Sends visitors who have not accepted the terms to the cover page first.
-GATE = ("<script>try{if(!localStorage.getItem('am-access'))location.replace('/welcome/?next='"
-        "+encodeURIComponent(location.pathname+location.search+location.hash))}catch(e){}</script>")
+# Access to content pages is enforced by server.py (signed am_access cookie).
+
+# Visitor analytics: one small first-party beacon per page view (no cookies, no third parties).
+BEACON = ("<script>(function(){try{var k='am-vid',v=localStorage.getItem(k);if(!v){v=Math.random().toString(36).slice(2)+Date.now().toString(36);"
+          "localStorage.setItem(k,v)}}catch(e){v=''}var d=JSON.stringify({path:location.pathname,ref:document.referrer,vid:v});"
+          "if(navigator.sendBeacon)navigator.sendBeacon('/api/event',d);else fetch('/api/event',{method:'POST',body:d,keepalive:true}).catch(function(){})})()</script>")
+
+BOOK = (SRC / "book-call.html").read_text(encoding="utf-8")
 
 # Standalone pages copied as-is (no nav, no gate).
 STATIC = [("welcome", "welcome.html"), ("terms", "terms.html")]
@@ -188,11 +193,11 @@ def build():
                 html = html.replace(title, "", 1)
             html = html.replace("</head>", title + "</head>", 1)
         html = dark(html)
-        html = html.replace("<head>", "<head>" + GATE, 1)
         html = html.replace("</head>", CSS + "</head>", 1)
         if slug == "hunter":
             html = clean_hunter(html)
         html = re.sub(r"<body>", lambda m: "<body>" + nav(slug), html, count=1)
+        html = html.replace("</body>", BOOK + BEACON + "</body>", 1)
         html = html.replace("/*%%PORTFOLIO_DATA%%*/", data).replace(EMAIL_OLD, EMAIL)
         # Cross-links: claude.ai artifact URLs -> in-site pages, opened in place.
         for a, path in ids.items():
@@ -210,9 +215,9 @@ def build():
     if WORDMARK.exists():
         (OUT / "brand").mkdir(exist_ok=True)
         shutil.copy(WORDMARK, OUT / "brand" / WORDMARK.name)
-    endpoint = os.environ.get("FORM_ENDPOINT", "").strip()
     for slug, src in STATIC:
-        html = dark((SRC / src).read_text(encoding="utf-8").replace("%%FORM_ENDPOINT%%", endpoint)).replace(EMAIL_OLD, EMAIL)
+        html = dark((SRC / src).read_text(encoding="utf-8")).replace(EMAIL_OLD, EMAIL)
+        html = html.replace("</body>", BEACON + "</body>", 1)
         dest = OUT / slug / "index.html"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")

@@ -1,4 +1,4 @@
-<!doctype html><html lang="en" data-theme="dark"><head><script>try{if(!localStorage.getItem('am-access'))location.replace('/welcome/?next='+encodeURIComponent(location.pathname+location.search+location.hash))}catch(e){}</script><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><title>Automagic Client Portfolio</title><style id="am-nav-css">
+<!doctype html><html lang="en" data-theme="dark"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><title>Automagic Client Portfolio</title><style id="am-nav-css">
 :root{--am-nav-h:56px}
 html{scroll-padding-top:calc(var(--am-nav-h) + 24px)!important}
 .am-nav{position:sticky;top:0;z-index:40;background:var(--navy-deep,#2C3C53);color:#F4F7FA;border-bottom:1px solid rgba(255,255,255,.12);padding-top:env(safe-area-inset-top,0px)}
@@ -29,7 +29,7 @@ html{scroll-padding-top:calc(var(--am-nav-h) + 24px)!important}
 .am-card span{font-size:13.5px;color:var(--muted);line-height:1.45}
 .am-legal{font-size:13px;color:var(--muted);margin:18px 0 0}.am-legal a{color:var(--cyan-ink)}
 .am-card i{font-style:normal;display:block;margin-top:10px;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-ink)}
-</style></head><body><nav class="am-nav" aria-label="Site"><div class="am-nav-in"><a class="am-home" href="/" aria-label="Automagic portfolio home"><svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="amlg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C8CED4"/><stop offset="1" stop-color="#B6E6F0"/></linearGradient></defs><path d="M31 9.5A15 15 0 1 0 31 30.5" fill="none" stroke="url(#amlg)" stroke-width="6" stroke-linecap="square"/><rect x="31" y="5" width="5" height="5" fill="#B6E6F0"/><rect x="31" y="30" width="5" height="5" fill="#C8CED4"/></svg><span>Automagic AI</span></a><div class="am-links"><a href="https://automagic.agency">Return to website</a><a class="am-cta" href="mailto:hello@automagic.agency?subject=Book%20a%20call">Book a Call</a></div></div></nav>
+</style></head><body><nav class="am-nav" aria-label="Site"><div class="am-nav-in"><a class="am-home" href="/" aria-label="Automagic portfolio home"><svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="amlg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C8CED4"/><stop offset="1" stop-color="#B6E6F0"/></linearGradient></defs><path d="M31 9.5A15 15 0 1 0 31 30.5" fill="none" stroke="url(#amlg)" stroke-width="6" stroke-linecap="square"/><rect x="31" y="5" width="5" height="5" fill="#B6E6F0"/><rect x="31" y="30" width="5" height="5" fill="#C8CED4"/></svg><span>Automagic AI</span></a><div class="am-links"><a href="https://automagic.agency">Return to website</a><a class="am-cta" href="mailto:hello@automagic.agency?subject=Book%20a%20call" data-am-book>Book a Call</a></div></div></nav>
 
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -796,4 +796,88 @@ var CLIENTS=[
 })();
 </script>
 
-</body></html>
+<dialog id="am-book" aria-labelledby="am-book-h">
+<style>
+#am-book{width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:0;border:1px solid var(--line,#263243);border-radius:18px;background:var(--surface,#161F2B);color:var(--ink,#E5EBF2);box-shadow:0 30px 80px rgba(0,0,0,.5);overflow:auto}
+#am-book::backdrop{background:rgba(5,9,15,.72);backdrop-filter:blur(3px)}
+#am-book .bk{padding:26px 26px 22px;font-family:var(--font-body,Inter,system-ui,sans-serif)}
+#am-book .bk-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+#am-book .bk-k{font-family:var(--font-mono,"IBM Plex Mono",monospace);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan-ink,#7FCFE0);margin:0 0 6px}
+#am-book h2{font-family:var(--font-display,"Space Grotesk",sans-serif);font-size:26px;line-height:1.15;margin:0;color:var(--navy-deep,#E5EBF2)}
+#am-book .bk-sub{color:var(--muted,#9AA8B9);font-size:14.5px;margin:8px 0 0}
+#am-book .bk-x{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--line,#263243);background:transparent;color:var(--muted,#9AA8B9);font-size:20px;line-height:1;cursor:pointer}
+#am-book .bk-x:hover{color:var(--ink,#E5EBF2);border-color:var(--muted,#9AA8B9)}
+#am-book form{display:grid;grid-template-columns:1fr 1fr;gap:14px 14px;margin-top:20px}
+#am-book .full{grid-column:1/-1}
+@media (max-width:520px){#am-book form{grid-template-columns:1fr}#am-book .bk{padding:22px 18px 18px}}
+#am-book label{display:block;font-size:13px;font-weight:500;color:var(--muted,#9AA8B9);margin-bottom:6px}
+#am-book label i{font-style:normal;opacity:.7}
+#am-book input,#am-book select,#am-book textarea{width:100%;box-sizing:border-box;font:16px/1.4 var(--font-body,Inter,sans-serif);color:var(--ink,#E5EBF2);background:var(--bg,#0F151E);border:1.5px solid var(--line,#263243);border-radius:10px;padding:11px 12px}
+#am-book textarea{min-height:96px;resize:vertical}
+#am-book select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:34px}
+#am-book input:focus,#am-book select:focus,#am-book textarea:focus{outline:none;border-color:var(--cyan,#7FCFE0);box-shadow:0 0 0 3px rgba(127,207,224,.18)}
+#am-book .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+#am-book .bk-err{grid-column:1/-1;color:#F2B8B5;font-size:14px;margin:0;min-height:0}
+#am-book .bk-go{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+#am-book .bk-go small{color:var(--muted,#9AA8B9);font-size:12.5px}
+#am-book button[type=submit]{font:600 15px var(--font-body,Inter,sans-serif);border:0;border-radius:999px;padding:12px 22px;background:#B6E6F0;color:#1F2B3D;cursor:pointer}
+#am-book button[type=submit]:hover{background:#D3F0F6}
+#am-book button[disabled]{opacity:.6;cursor:wait}
+#am-book .bk-done{text-align:center;padding:18px 0 8px}
+#am-book .bk-done svg{width:52px;height:52px;color:var(--cyan,#7FCFE0)}
+#am-book .bk-done p{color:var(--muted,#9AA8B9);margin:8px 0 18px}
+</style>
+<div class="bk">
+  <div class="bk-top">
+    <div><p class="bk-k">Book a Call</p><h2 id="am-book-h">Tell us about your project</h2>
+      <p class="bk-sub">We will reply within one working day to find a time.</p></div>
+    <button class="bk-x" type="button" data-am-close aria-label="Close">×</button>
+  </div>
+  <form id="am-book-f" novalidate>
+    <div><label for="bk-name">Full name</label><input id="bk-name" name="name" autocomplete="name" required maxlength="120"></div>
+    <div><label for="bk-company">Company</label><input id="bk-company" name="company" autocomplete="organization" maxlength="160"></div>
+    <div><label for="bk-web">Website</label><input id="bk-web" name="website" inputmode="url" autocomplete="url" placeholder="company.com" maxlength="300"></div>
+    <div><label for="bk-email">Email</label><input id="bk-email" name="email" type="email" inputmode="email" autocomplete="email" required maxlength="254"></div>
+    <div class="full"><label for="bk-eng">Engagement type</label>
+      <select id="bk-eng" name="engagement"><option value="">Choose one</option><option>AI Transformation</option><option>AI Strategy</option><option>AI Product Build</option><option>Not sure yet</option></select></div>
+    <div class="full"><label for="bk-notes">Anything we should know? <i>(optional)</i></label>
+      <textarea id="bk-notes" name="notes" maxlength="4000" placeholder="Goals, timing, the problem you want to solve…"></textarea></div>
+    <div class="hp" aria-hidden="true"><label for="bk-hp">Leave empty</label><input id="bk-hp" name="hp" tabindex="-1" autocomplete="off"></div>
+    <p class="bk-err" id="bk-err" role="alert" aria-live="polite"></p>
+    <div class="bk-go"><small>Or email <a href="mailto:hello@automagic.agency">hello@automagic.agency</a></small><button type="submit">Send request</button></div>
+  </form>
+  <div class="bk-done" hidden>
+    <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M15 24.5l6 6 12-13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <h2>Thanks, we have it</h2><p>We will be in touch within one working day.</p>
+    <button type="submit" data-am-close>Close</button>
+  </div>
+</div>
+<script>
+(function(){
+  var d=document.getElementById('am-book'), f=document.getElementById('am-book-f'), err=document.getElementById('bk-err'),
+      done=d.querySelector('.bk-done'), btn=f.querySelector('button[type=submit]');
+  if(!d.showModal) return; /* very old browsers keep the mailto link */
+  document.addEventListener('click',function(e){
+    var a=e.target.closest('[data-am-book]');
+    if(a){ e.preventDefault();
+      try{ var p=JSON.parse(localStorage.getItem('am-access')||'null'); var em=document.getElementById('bk-email'); if(p&&p.email&&!em.value) em.value=p.email; }catch(x){}
+      f.hidden=false; done.hidden=true; err.textContent=''; d.showModal(); document.getElementById('bk-name').focus(); return; }
+    if(e.target.closest('[data-am-close]')||e.target===d){ d.close(); }
+  });
+  f.addEventListener('submit',function(e){
+    e.preventDefault();
+    var v=function(n){return (f.elements[n].value||'').trim()};
+    if(!v('name')){err.textContent='Please enter your full name.';f.elements.name.focus();return}
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v('email'))){err.textContent='Please enter a valid email address.';f.elements.email.focus();return}
+    err.textContent=''; btn.disabled=true; btn.textContent='Sending…';
+    var body={name:v('name'),company:v('company'),website:v('website'),email:v('email'),engagement:v('engagement'),notes:v('notes'),hp:v('hp'),page:location.pathname};
+    fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'})
+      .then(function(r){return r.json().then(function(j){if(!r.ok||!j.ok)throw new Error(j.error||'');})})
+      .then(function(){ f.reset(); f.hidden=true; done.hidden=false; })
+      .catch(function(x){ err.textContent=(x&&x.message)||'Something went wrong. Please email hello@automagic.agency.'; })
+      .then(function(){ btn.disabled=false; btn.textContent='Send request'; });
+  });
+})();
+</script>
+</dialog>
+<script>(function(){try{var k='am-vid',v=localStorage.getItem(k);if(!v){v=Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem(k,v)}}catch(e){v=''}var d=JSON.stringify({path:location.pathname,ref:document.referrer,vid:v});if(navigator.sendBeacon)navigator.sendBeacon('/api/event',d);else fetch('/api/event',{method:'POST',body:d,keepalive:true}).catch(function(){})})()</script></body></html>
