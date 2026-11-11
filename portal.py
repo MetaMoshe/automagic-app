@@ -70,6 +70,10 @@ def init():
             elif col not in have:
                 S.q(f"ALTER TABLE clients ADD COLUMN {col} TEXT")
         if S.DATABASE_URL:
+            S.q("ALTER TABLE clients ADD COLUMN IF NOT EXISTS logo TEXT")
+        elif "logo" not in have:
+            S.q("ALTER TABLE clients ADD COLUMN logo TEXT")
+        if S.DATABASE_URL:
             S.q("ALTER TABLE clients ADD COLUMN IF NOT EXISTS consultant_id INTEGER")
         elif "consultant_id" not in [r[1] for r in S.q("PRAGMA table_info(clients)")]:
             S.q("ALTER TABLE clients ADD COLUMN consultant_id INTEGER")
@@ -90,10 +94,10 @@ def commit():
 
 def client_row(cid):
     r = S.q(f"SELECT id, created, updated, {', '.join(CLIENT_FIELDS)}, password_hash, portal_enabled, session_ver, last_login, "
-            "consultant_id FROM clients WHERE id = ?", (cid,), one=True)
+            "consultant_id, logo FROM clients WHERE id = ?", (cid,), one=True)
     if not r:
         return None
-    keys = ["id", "created", "updated"] + CLIENT_FIELDS + ["password_hash", "portal_enabled", "session_ver", "last_login", "consultant_id"]
+    keys = ["id", "created", "updated"] + CLIENT_FIELDS + ["password_hash", "portal_enabled", "session_ver", "last_login", "consultant_id", "logo"]
     return dict(zip(keys, r))
 
 
@@ -151,7 +155,7 @@ def guards():
         origin = request.headers.get("Origin")
         if origin and urllib.parse.urlparse(origin).netloc != request.host:
             abort(403)
-    uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p == "/portal/api/drive" or p.startswith("/admin/consultants/")
+    uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p == "/portal/api/drive" or p.startswith("/admin/consultants/") or (p.startswith("/admin/clients/") and p.endswith("/logo"))
     limit = MAX_FILE + 1024 * 1024 if uploads else 64 * 1024
     if (request.content_length or 0) > limit:
         abort(413)
@@ -404,6 +408,69 @@ def admin_upload(cid):
         name, e = save_upload(cid, f, kind, cat, "admin")
         (saved if name else errors).append(name or e)
     return jsonify(ok=not errors, saved=saved, errors=errors)
+
+
+LOGO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/svg+xml": ".svg"}
+
+
+def logo_response(c):
+    name = os.path.basename((c or {}).get("logo") or "")
+    path = os.path.join(FILES_DIR, str(int(c["id"])), name) if name else ""
+    if not name or not os.path.isfile(path):
+        abort(404)
+    resp = send_file(path, max_age=300)
+    # SVG can carry script: never let it run if the file is opened directly.
+    resp.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    return resp
+
+
+@bp.post("/admin/clients/<int:cid>/logo")
+def admin_client_logo(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    if not c:
+        abort(404)
+    folder = os.path.join(FILES_DIR, str(int(cid)))
+    old = os.path.basename(c.get("logo") or "")
+    if request.form.get("remove"):
+        name, msg = None, "Logo removed."
+    else:
+        f = request.files.get("logo")
+        mime = mimetypes.guess_type(f.filename)[0] if f and f.filename else None
+        data = f.read(2 * 1024 * 1024 + 1) if f else b""
+        if mime not in LOGO_TYPES or not 0 < len(data) <= 2 * 1024 * 1024:
+            return redirect(f"/admin/clients/{cid}?logo_error=1")
+        os.makedirs(folder, exist_ok=True)
+        name = "logo-" + secrets.token_hex(8) + LOGO_TYPES[mime]
+        with open(os.path.join(folder, name), "wb") as out:
+            out.write(data)
+        msg = "Logo saved."
+    S.q("UPDATE clients SET logo = ?, updated = ? WHERE id = ?", (name, S.now(), cid))
+    commit()
+    if old:
+        try:
+            os.remove(os.path.join(folder, old))
+        except OSError:
+            pass
+    return redirect(f"/admin/clients/{cid}?saved=1&logo_note=" + urllib.parse.quote(msg))
+
+
+@bp.get("/admin/clients/<int:cid>/logo")
+def admin_client_logo_get(cid):
+    r = admin_only()
+    if r:
+        return r
+    return logo_response(client_row(cid))
+
+
+@bp.get("/portal/logo")
+def portal_logo():
+    c = current_client()
+    if not c:
+        abort(404)
+    return logo_response(c)
 
 
 @bp.get("/admin/clients/<int:cid>/files/<int:fid>")
@@ -722,6 +789,12 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
 </form>
 <div style="display:grid;gap:18px">
 {% if cid %}
+ <form class="card" method="post" action="/admin/clients/{{ cid }}/logo" enctype="multipart/form-data"><p class="mono">Company logo</p>
+  <p class="empty" style="margin:4px 0 12px;font-size:14px">Shown in the client's portal. PNG, JPG, WebP or SVG, up to 2 MB. A transparent logo works best.</p>
+  {% if request.args.get('logo_error') %}<p class="err" role="alert" style="font-size:14px">Logo not saved: use a PNG, JPG, WebP or SVG under 2 MB.</p>{% elif request.args.get('logo_note') %}<p class="ok" role="status" style="font-size:14px">{{ request.args.get('logo_note') }}</p>{% endif %}
+  {% if c.logo %}<div style="background:#F4F7FA;border-radius:10px;padding:14px;display:grid;place-items:center;margin-bottom:12px"><img src="/admin/clients/{{ cid }}/logo?v={{ c.logo }}" alt="{{ c.company }} logo" style="max-height:64px;max-width:100%"></div>{% endif %}
+  <div class="row"><input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/svg+xml" aria-label="Logo file" style="flex:1;min-width:0"><button type="submit">{{ 'Replace' if c.logo else 'Upload' }}</button>{% if c.logo %}<button class="ghost" type="submit" name="remove" value="1" formnovalidate>Remove</button>{% endif %}</div>
+ </form>
  <div class="card"><p class="mono">Project documents</p><p class="empty" style="margin:4px 0 12px;font-size:14px">Proposals, agreements and other documents the client sees under Project docs.</p>
   <label class="f" for="cat">Document type</label><select id="cat">{% for d in doc_types %}<option>{{ d }}</option>{% endfor %}</select>
   <div class="drop" data-kind="legal" tabindex="0" role="button" style="margin-top:10px"><b>Drop files here</b> or click to choose<br><small>Up to 25 MB each</small></div>
@@ -808,6 +881,8 @@ ICON = {
  "mail": '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/>',
  "phone": '<path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 5a2 2 0 0 1 2-2z"/>',
  "in": '<rect x="2" y="2" width="20" height="20" rx="3"/><path d="M7 10v7M7 7v.01M11 17v-4a2 2 0 0 1 4 0v4M11 10v7"/>',
+ "book": '<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v15H5.5A1.5 1.5 0 0 0 4 19.5z"/><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H20v-3M8 7h8M8 11h6"/>',
+ "ext": '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
  "cal": '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
 }
 
@@ -846,6 +921,15 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
  .side{position:static;display:flex;overflow-x:auto;gap:6px;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}.side::-webkit-scrollbar{display:none}
  .side a{flex:none;border:1px solid var(--line);padding:8px 12px;font-size:14px}.side a.on{box-shadow:none;border-color:var(--cyan)}}
 .view[hidden]{display:none}
+.side a.ext{position:relative;margin-top:10px;border-top:1px solid var(--line);border-radius:0 0 8px 8px;padding-top:14px}.side a.ext svg:last-child{margin-left:auto;opacity:.6}
+@media (max-width:900px){.side a.ext{margin-top:0;border-radius:8px;padding-top:8px;border:1px solid var(--line)}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.foot{border-top:1px solid var(--line);background:var(--bg-2)}
+.foot .in{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:12px 28px;flex-wrap:wrap;padding:20px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));font-size:13.5px;color:var(--faint)}
+.foot nav{display:flex;gap:6px 20px;flex-wrap:wrap}
+.foot a{color:var(--muted);text-decoration:none}.foot a:hover{color:var(--ink)}
+.foot .help{margin-left:auto}.foot .help a{color:var(--cyan)}
+@media (max-width:700px){.foot .help{margin-left:0;width:100%}}
 .label{display:inline-flex;align-items:center;gap:9px;font:500 12px var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
 .label::before{content:"";width:8px;height:8px;background:var(--cyan)}
 .vh{display:grid;gap:10px;margin-bottom:24px}.vh h2{font-size:clamp(26px,3vw,34px);font-weight:600}.vh p{color:var(--muted);max-width:62ch;margin:0}
@@ -853,6 +937,13 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .hero h1{font-size:clamp(32px,4.4vw,52px);font-weight:600;line-height:1.05;margin:14px 0 10px}
 .hero h1 span{color:var(--cyan)}.hero p.co{color:var(--ink);font:600 clamp(18px,2vw,22px) var(--fd);letter-spacing:-.01em;margin:-4px 0 14px}.hero p{color:var(--muted);max-width:62ch;margin:0;font-size:17px}
 /* overview */
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.clogo{flex:none;width:clamp(96px,14vw,168px);height:clamp(64px,8vw,96px);border-radius:12px;background:#F4F7FA;display:grid;place-items:center;padding:12px 16px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.clogo img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+@media (max-width:560px){.hero-top{flex-direction:column-reverse;align-items:flex-start}.clogo{width:120px;height:64px}}
+.top .who{display:flex;align-items:center;gap:12px}.top .who>span{min-width:0}
+.hlogo{flex:none;width:36px;height:36px;border-radius:8px;background:#F4F7FA;display:grid;place-items:center;padding:4px}
+.hlogo img{max-width:100%;max-height:100%;object-fit:contain;display:block}
 .hero.slim{padding:clamp(22px,3vw,32px) clamp(20px,3vw,34px)}
 .hero.slim h1{font-size:clamp(30px,3.6vw,44px);margin:12px 0 6px}
 .hero.slim p.co{margin:0}
@@ -939,7 +1030,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 .kv{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 14px;font-size:14.5px;margin:0}.kv dt{color:var(--faint)}.kv dd{margin:0}
 </style></head><body>
 <header class="top"><div class="in"><a href="/" aria-label="Automagic home"><img src="/brand/wordmark-light.svg" alt="Automagic"></a>
-<div class="who"><b>{{ c.company }}</b>{{ c.contact_email }}</div>
+<div class="who">{% if c.logo %}<span class="hlogo"><img src="/portal/logo?v={{ c.logo }}" alt=""></span>{% endif %}<span><b>{{ c.company }}</b>{{ c.contact_email }}</span></div>
 <form method="post" action="/portal/logout" style="margin:0"><button class="btn btn-g" type="submit">Sign out</button></form></div></header>
 <div class="shell">
 <nav class="side" aria-label="Portal">
@@ -949,6 +1040,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
  <a href="#drive" data-v="drive">{{ icon('drive')|safe }}Your Drive</a>
  <a href="#settings" data-v="settings">{{ icon('gear')|safe }}Settings</a>
+ <a href="/work/" target="_blank" rel="noopener" class="ext">{{ icon('book')|safe }}Case studies<span class="sr">(opens in a new tab)</span>{{ icon('ext', 14)|safe }}</a>
 </nav>
 <main>
 {% if note %}<p class="note" role="status">{{ note }}</p>{% endif %}
@@ -967,8 +1059,9 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  </div>
 {% endmacro %}
 <section class="view" id="v-home">
- <div class="hero slim"><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
-  {% if c.company %}<p class="co">{{ c.company }}</p>{% endif %}
+ <div class="hero slim"><div class="hero-top"><div><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
+  {% if c.company %}<p class="co">{{ c.company }}</p>{% endif %}</div>
+  {% if c.logo %}<div class="clogo"><img src="/portal/logo?v={{ c.logo }}" alt="{{ c.company }} logo"></div>{% endif %}</div>
   <div class="chips">{% if c.engagement %}<span class="chip"><b>{{ c.engagement }}</b></span>{% endif %}<span class="chip{% if c.status == 'Active' %} ok{% endif %}">{{ c.status or 'Active' }}</span></div>
   {% if c.phase in phases %}{% set cur = phases.index(c.phase) %}<ol class="phases" aria-label="Project progress">{% for ph in phases %}<li class="{{ 'done' if loop.index0 < cur else 'now' if loop.index0 == cur else '' }}"{% if loop.index0 == cur %} aria-current="step"{% endif %}><span>{{ ph }}</span></li>{% endfor %}</ol>{% endif %}
  </div>
@@ -1056,6 +1149,11 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  </div>
 </section>
 </main></div>
+<footer class="foot"><div class="in">
+ <span>© 2026 Automagic AI</span>
+ <nav aria-label="Footer"><a href="/" target="_blank" rel="noopener">Website</a><a href="/work/" target="_blank" rel="noopener">Case studies</a><a href="/terms/" target="_blank" rel="noopener">Terms and privacy</a>{% if con.email %}<a href="mailto:{{ con.email }}">Contact {{ con.name.split(' ')[0] }}</a>{% endif %}</nav>
+ <span class="help">Need help? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">{{ con.email or 'hello@automagic.agency' }}</a></span>
+</div></footer>
 <script>
 (function(){
   var views=['home','consultant','legal','invoices','drive','settings'];
