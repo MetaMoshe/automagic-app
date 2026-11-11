@@ -289,7 +289,7 @@ def admin_login():
             session.clear()
             session.permanent = True
             session["admin"] = True
-            return redirect("/admin/inbox")
+            return redirect("/admin")
         else:
             _fails[key].append(time.time())
             err = "That password is not right."
