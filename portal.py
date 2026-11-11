@@ -165,6 +165,68 @@ def set_setting(k, v):
         S.q("INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)", (k, v))
 
 
+# The "Step" card on the portal overview: one set of guidance per project phase.
+# {con} is replaced with the consultant's first name.
+STAGE_CARD = {
+    "Introduction": {
+        "title": "Get to know how we work",
+        "intro": "Before discovery begins, take ten minutes to see what the journey looks like: the five phases from discovery to running and evolving your AI, what we need from your team, and what you get at each step.",
+        "steps": [["Learn how we work.", "Our approach, the five phases in detail and how we measure the return."],
+                  ["See a real discovery report.", "The findings, solutions and roadmap we delivered for an executive search firm, so you know exactly what discovery produces."],
+                  ["Bring your questions", "to your first session with {con}."]],
+        "actions": [["How we work →", "/portal/how-we-work", 1, 0], ["See a real discovery report ↗", "/hunter/", 0, 1]],
+    },
+    "Discovery": {
+        "title": "Discovery is under way",
+        "intro": "Over 3–4 days we map how work flows today, where time and information are lost, and where AI creates the most leverage. It ends in a decision, not a pile of observations.",
+        "steps": [["Book the interviews.", "60–90 minutes with key people across leadership and front-line teams."],
+                  ["Share your materials.", "Representative workflows, templates and data exports, uploaded to Your Drive."],
+                  ["Name a coordinator", "who can schedule access to people and systems."]],
+        "actions": [["Upload to Your Drive →", "#drive", 1, 0], ["What discovery produces ↗", "/hunter/", 0, 1]],
+    },
+    "Design": {
+        "title": "Designing your solution",
+        "intro": "We're turning the roadmap into something you can approve: a solution design, a scoped set of tools and changes, a delivery plan in waves, and a business case with the KPIs it will be judged on.",
+        "steps": [["Confirm your sponsor and product owner.", "They approve the design and own the results."],
+                  ["Open doors to system owners", "so we can review integrations."],
+                  ["Check the business case assumptions.", "Your figures make the ROI model real."]],
+        "actions": [["Review project docs →", "#legal", 1, 0], ["Try the ROI calculator", "#roi", 0, 0]],
+    },
+    "Build": {
+        "title": "Building in waves",
+        "intro": "We deliver in short waves so your team uses real tools early. Each wave is designed, built, tested and launched inside your existing systems, then reviewed before the next one starts.",
+        "steps": [["Make your experts available", "for each wave's design and testing."],
+                  ["Keep access to systems and data flowing", "so the build doesn't stall."],
+                  ["Sign off each wave.", "We review adoption, time saved and issues, then agree go or no-go for the next."]],
+        "actions": [["Message {con} →", "#inbox", 1, 0], ["The build phase in detail", "/portal/how-we-work#phases", 0, 0]],
+    },
+    "Adopt": {
+        "title": "Getting your team using it",
+        "intro": "Tools that are built but not used return nothing. Hands-on training, office hours and team champions make sure every launch turns into daily use.",
+        "steps": [["Join the hands-on sessions.", "90 minutes per team, per wave."],
+                  ["Use weekly office hours", "for the four weeks after each launch."],
+                  ["Share feedback inside the tools.", "It becomes the improvement backlog."]],
+        "actions": [["Book office hours →", "{cal}", 1, 1], ["Send feedback", "#inbox", 0, 0]],
+    },
+    "Run and evolve": {
+        "title": "Running and evolving",
+        "intro": "Everything we delivered is monitored, tuned and extended. The data and results it produces shape what comes next.",
+        "steps": [["Join the monthly steering meeting", "for usage, costs and fixes."],
+                  ["Review the return each quarter", "against the KPIs agreed in Design."],
+                  ["Tell us what's next.", "New opportunities found in real use become the next stage."]],
+        "actions": [["Book a review →", "{cal}", 1, 1], ["Message {con}", "#inbox", 0, 0]],
+    },
+}
+
+
+def stage_card(phase, con):
+    d = STAGE_CARD.get(phase) or STAGE_CARD["Introduction"]
+    first = (con.get("name") or "your consultant").split(" ")[0]
+    f = lambda x: x.replace("{con}", first).replace("{cal}", con.get("cal_url") or "#consultant")
+    return {"title": d["title"], "intro": f(d["intro"]), "steps": [[f(a), f(b)] for a, b in d["steps"]],
+            "actions": [[f(l), f(h), pr, bool(ext) and not f(h).startswith("#")] for l, h, pr, ext in d["actions"]]}
+
+
 PRICING_DEFAULT = {
     "label": "Engagement models & pricing",
     "heading": "How we charge",
@@ -798,7 +860,7 @@ def portal():
     inv, inv_err = invoices(c["stripe_customer_id"])
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
     msgs = messages_for(c["id"])
-    return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), msgs=msgs, unread=sum(1 for m in msgs if m["sender"] == "consultant" and not m["read_client"]), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
+    return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), stage=stage_card(c.get("phase") if c.get("phase") in PHASES else "Introduction", consultant_for(c)), msgs=msgs, unread=sum(1 for m in msgs if m["sender"] == "consultant" and not m["read_client"]), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
                                   drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
@@ -1231,7 +1293,6 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .intro h3{font-size:clamp(20px,2.2vw,24px);margin:10px 0 8px}.intro>p{margin:0;color:var(--muted);line-height:1.6;max-width:62ch}
 .isteps{margin:16px 0 0;padding-left:20px;display:grid;gap:8px;color:var(--muted);line-height:1.55}.isteps b{color:var(--ink);font-weight:600}
 .iact{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
-.ov.solo{grid-template-columns:minmax(0,1fr)}.ov.solo .ov-side{order:0;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:start}
 .side .badge{margin-left:auto;font:600 11px var(--fm);background:var(--cyan);color:var(--on-cyan);border-radius:999px;padding:2px 8px}
 .ov-side{display:grid;gap:16px;min-width:0}
 .ibx{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}@media (max-width:1000px){.ibx{grid-template-columns:minmax(0,1fr)}}
@@ -1377,19 +1438,15 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
   {% set cur = phases.index(c.phase) if c.phase in phases else 0 %}<ol class="phases" aria-label="Project progress">{% for ph in phases %}<li class="{{ 'done' if loop.index0 < cur else 'now' if loop.index0 == cur else '' }}"><a href="/portal/how-we-work{{ phase_links[ph] }}"{% if loop.index0 == cur %} aria-current="step"{% endif %}><span>{% if loop.first %}1 · {% endif %}{{ ph }}</span></a></li>{% endfor %}</ol>
   {% if cur > 0 %}<p class="hww"><a href="/portal/how-we-work">How we work →</a></p>{% endif %}
  </div>
- <div class="ov{% if cur != 0 %} solo{% endif %}">
-  {% if cur == 0 %}<div class="ov-main">
-   <div class="card intro"><span class="label">Step 1 · Start here</span>
-    <h3>Get to know how we work</h3>
-    <p>Before discovery begins, take ten minutes to see what the journey looks like: the five phases from discovery to running and evolving your AI, what we need from your team, and what you get at each step.</p>
-    <ol class="isteps">
-     <li><b>Learn how we work.</b> Our approach, the five phases in detail and how we measure the return.</li>
-     <li><b>See a real discovery report.</b> The findings, solutions and roadmap we delivered for an executive search firm, so you know exactly what discovery produces.</li>
-     <li><b>Bring your questions</b> to your first session with {{ con.name.split(' ')[0] }}.</li>
-    </ol>
-    <div class="iact"><a class="btn btn-p" href="/portal/how-we-work">How we work →</a><a class="btn btn-g" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></div>
+ <div class="ov">
+  <div class="ov-main">
+   {% set sc = stage %}<div class="card intro"><span class="label">Step {{ cur + 1 }} · {{ 'Start here' if cur == 0 else phases[cur] }}</span>
+    <h3>{{ sc.title }}</h3>
+    <p>{{ sc.intro }}</p>
+    <ol class="isteps">{% for b, t in sc.steps %}<li><b>{{ b }}</b> {{ t }}</li>{% endfor %}</ol>
+    <div class="iact">{% for l, h, pr, ext in sc.actions %}<a class="btn {{ 'btn-p' if pr else 'btn-g' }}" href="{{ h }}"{% if ext %} target="_blank" rel="noopener"{% endif %}>{{ l }}</a>{% endfor %}</div>
    </div>
-  </div>{% endif %}
+  </div>
   <aside class="ov-side"><div class="card cc"><span class="label">Your consultant</span>
    <div class="cc-h">{% if con.photo %}<img class="ph" src="/consultant-photo/{{ con.id }}" alt="" width="64" height="64">{% else %}<div class="ph" aria-hidden="true">{{ con.name[:1] }}</div>{% endif %}<div><b>{{ con.name }}</b><span>{{ con.title }}</span></div></div>
    <div class="cc-l">{% if con.email %}<a href="mailto:{{ con.email }}" aria-label="Email {{ con.name }}" title="{{ con.email }}">{{ icon('mail')|safe }}</a>{% endif %}{% if con.phone %}<a href="tel:{{ con.phone|replace(' ','') }}" aria-label="Call {{ con.name }}" title="{{ con.phone }}">{{ icon('phone')|safe }}</a>{% endif %}{% if con.linkedin %}<a href="{{ con.linkedin }}" target="_blank" rel="noopener" aria-label="{{ con.name }} on LinkedIn" title="LinkedIn">{{ icon('in')|safe }}</a>{% endif %}</div>
