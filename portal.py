@@ -935,8 +935,9 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
  .side{position:static;display:flex;overflow-x:auto;gap:6px;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}.side::-webkit-scrollbar{display:none}
  .side a{flex:none;border:1px solid var(--line);padding:8px 12px;font-size:14px}.side a.on{box-shadow:none;border-color:var(--cyan)}}
 .view[hidden]{display:none}
-.side a.ext{position:relative;margin-top:10px;border-top:1px solid var(--line);border-radius:0 0 8px 8px;padding-top:14px}.side a.ext svg:last-child{margin-left:auto;opacity:.6}
-@media (max-width:900px){.side a.ext{margin-top:0;border-radius:8px;padding-top:8px;border:1px solid var(--line)}}
+.side a.ext{position:relative}.side a.ext svg:last-child{margin-left:auto;opacity:.6}
+.side a.sep{margin-top:10px;border-top:1px solid var(--line);border-radius:0 0 8px 8px;padding-top:14px}
+@media (max-width:900px){.side a.sep{margin-top:0;border-radius:8px;padding-top:8px;border:1px solid var(--line)}.side a.sep.on{border-color:var(--cyan)}}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .foot{border-top:1px solid var(--line);background:var(--bg-2)}
 .foot .in{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:12px 28px;flex-wrap:wrap;padding:20px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));font-size:13.5px;color:var(--faint)}
@@ -1083,8 +1084,8 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
  <a href="#drive" data-v="drive">{{ icon('drive')|safe }}Your Drive</a>
  <a href="#pricing" data-v="pricing">{{ icon('tag')|safe }}Engagement & pricing</a>
  <a href="#roi" data-v="roi">{{ icon('calc')|safe }}ROI calculator</a>
- <a href="#settings" data-v="settings">{{ icon('gear')|safe }}Settings</a>
  <a href="/work/" target="_blank" rel="noopener" class="ext">{{ icon('book')|safe }}Case studies<span class="sr">(opens in a new tab)</span>{{ icon('ext', 14)|safe }}</a>
+ <a href="#settings" data-v="settings" class="sep">{{ icon('gear')|safe }}Settings</a>
 </nav>
 <main>
 {% if note %}<p class="note" role="status">{{ note }}</p>{% endif %}
