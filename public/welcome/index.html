@@ -110,8 +110,8 @@ footer a{color:inherit}
 (function(){
   var f=document.getElementById('gate'), em=document.getElementById('email'), ag=document.getElementById('agree'),
       err=document.getElementById('err'), go=document.getElementById('go');
-  var q=new URLSearchParams(location.search), next=q.get('next')||'/';
-  if(!/^\/(?!\/)/.test(next)) next='/';
+  var q=new URLSearchParams(location.search), next=q.get('next')||'/work/';
+  if(!/^\/(?!\/)/.test(next)) next='/work/';
   try{ var prev=JSON.parse(localStorage.getItem('am-access')||'null'); if(prev&&prev.email) em.value=prev.email; }catch(e){}
   f.addEventListener('submit',function(e){
     e.preventDefault();

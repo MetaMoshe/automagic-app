@@ -13,7 +13,7 @@ SRC, OUT = ROOT / "src", ROOT / "public"
 
 # slug, source file, nav label, artifact id (for link rewriting; None = not an artifact), blurb
 PAGES = [
-    ("", "home.html", "Portfolio", None, "Featured case studies and every client at a glance"),
+    ("work", "home.html", "Portfolio", None, "Featured case studies and every client at a glance"),
     ("clients", "portfolio.html", "Clients", "Xwe1YVfH51s8fDtv4XzFEv",
      "The full profile of every engagement"),
     ("hunter", "hunter.html", "Hunter Executive", "TLYDnbsNc4ojm2kMQSThz9",
@@ -76,21 +76,21 @@ def logo():
     return LOGO + "<span>Automagic AI</span>"
 
 
-WEBSITE = "https://automagic.agency"
+WEBSITE = "/"
 BOOK_CALL = "mailto:hello@automagic.agency?subject=Book%20a%20call"
 EMAIL_OLD, EMAIL = "hello@moshedavid.xyz", "hello@automagic.agency"
 
 
 def nav(active):
     return (f'<nav class="am-nav" aria-label="Site"><div class="am-nav-in">'
-            f'<a class="am-home" href="/" aria-label="Automagic portfolio home">{logo()}</a>'
+            f'<a class="am-home" href="/work/" aria-label="Automagic portfolio home">{logo()}</a>'
             f'<div class="am-links"><a href="{WEBSITE}">Return to website</a>'
             f'<a class="am-cta" href="{BOOK_CALL}" data-am-book>Book a Call</a></div></div></nav>')
 
 
 def more(active):
     picks = [p for p in PAGES if p[0] in CASES and p[0] != active]
-    picks += [p for p in PAGES if p[0] in ("", "clients") and p[0] != active]
+    picks += [p for p in PAGES if p[0] in ("work", "clients") and p[0] != active]
     cards = "".join(
         f'<a class="am-card" href="{href(s)}"><b>{label}</b><span>{blurb}</span>'
         f'<i>{"Read the case study" if s in CASES else "Open"} →</i></a>'
@@ -222,6 +222,11 @@ def build():
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")
         print(f"built {dest.relative_to(ROOT)}")
+    # Public homepage (automagic.agency): its own nav, plus the Book a Call pop-up and the visit beacon.
+    html = (SRC / "site-home.html").read_text(encoding="utf-8")
+    html = html.replace("</body>", BOOK + BEACON + "</body>", 1)
+    (OUT / "index.html").write_text(html, encoding="utf-8")
+    print("built public/index.html (homepage)")
 
 
 if __name__ == "__main__":
