@@ -10,7 +10,8 @@ Environment:
   DATABASE_URL    Postgres URL; when unset, SQLite at $DATA_DIR/portfolio.db
   DATA_DIR        folder for the SQLite file (default ./data)
 """
-import csv, hashlib, hmac, io, json, os, re, secrets, sqlite3, time
+import csv, gzip, hashlib, hmac, io, json, os, re, secrets, shutil, sqlite3, threading, time, urllib.request
+from functools import lru_cache
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, quote
@@ -81,12 +82,102 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS visits_at ON visits (at)",
         ):
             q(sql)
+        for table in ("access", "visits"):
+            for col in ("country", "city"):
+                try:
+                    q(f"ALTER TABLE {table} ADD COLUMN {'IF NOT EXISTS ' if DATABASE_URL else ''}{col} TEXT")
+                except sqlite3.OperationalError:
+                    pass  # column already there
         if not DATABASE_URL:
             db().commit()
 
 
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# ---------------------------------------------------------------- geolocation
+# Country and city come from the free DB-IP City Lite database (CC BY 4.0), downloaded
+# once a month to DATA_DIR. Only the place name is stored, never the IP address.
+GEO_FILE = os.path.join(DATA_DIR, "dbip-city-lite.mmdb")
+_geo = {"reader": None, "mtime": 0}
+_geo_lock = threading.Lock()
+
+
+def _geo_download():
+    lock = GEO_FILE + ".lock"
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        if time.time() - os.path.getmtime(lock) < 1800:
+            return  # another worker is downloading
+        os.remove(lock)
+        return
+    try:
+        today = datetime.now(timezone.utc)
+        months = [today.strftime("%Y-%m"), (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")]
+        for m in months:
+            url = f"https://download.db-ip.com/free/dbip-city-lite-{m}.mmdb.gz"
+            try:
+                tmp = GEO_FILE + ".part"
+                with urllib.request.urlopen(url, timeout=120) as r, gzip.GzipFile(fileobj=r) as gz, open(tmp, "wb") as out:
+                    shutil.copyfileobj(gz, out, 1 << 20)
+                os.replace(tmp, GEO_FILE)
+                app.logger.info("Geo database updated from %s", url)
+                return
+            except Exception as e:  # try last month's file
+                app.logger.warning("Geo download failed for %s: %s", url, e)
+    finally:
+        os.close(fd)
+        os.remove(lock)
+
+
+def _geo_reader():
+    try:
+        mtime = os.path.getmtime(GEO_FILE)
+    except OSError:
+        mtime = 0
+    if not mtime or time.time() - mtime > 32 * 86400:
+        threading.Thread(target=_geo_download, daemon=True).start() if not os.path.exists(GEO_FILE + ".lock") else None
+    if mtime and mtime != _geo["mtime"]:
+        with _geo_lock:
+            try:
+                import maxminddb
+                _geo["reader"], _geo["mtime"] = maxminddb.open_database(GEO_FILE), mtime
+                geo_lookup.cache_clear()
+            except Exception as e:
+                app.logger.warning("Geo database not readable: %s", e)
+    return _geo["reader"]
+
+
+@lru_cache(maxsize=4096)
+def geo_lookup(ip):
+    reader = _geo["reader"]
+    if not reader or not ip:
+        return None, None
+    try:
+        rec = reader.get(ip) or {}
+    except ValueError:
+        return None, None
+    name = lambda k: ((rec.get(k) or {}).get("names") or {}).get("en")
+    return name("country"), name("city")
+
+
+def client_ip():
+    for h in ("CF-Connecting-IP", "True-Client-IP"):
+        if request.headers.get(h):
+            return request.headers[h].strip()
+    xff = request.headers.get("X-Forwarded-For", "")
+    return xff.split(",")[0].strip() if xff else (request.remote_addr or "")
+
+
+def where():
+    _geo_reader()
+    country, city = geo_lookup(client_ip())
+    if not country:
+        cc = request.headers.get("CF-IPCountry", "")
+        country = cc if re.fullmatch(r"[A-Z]{2}", cc) and cc not in ("XX", "T1") else None
+    return country, city
 
 
 def ip_hash():
@@ -115,8 +206,9 @@ def api_access():
     if d.get("agreedTerms") is not True:
         return jsonify(ok=False, error="Please accept the terms to continue."), 400
     page = clip(d.get("page"), 300)
-    q("INSERT INTO access (at, email, page, ua, ip_hash) VALUES (?, ?, ?, ?, ?)",
-      (now(), email, page, clip(request.user_agent.string, 300), ip_hash()))
+    country, city = where()
+    q("INSERT INTO access (at, email, page, ua, ip_hash, country, city) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      (now(), email, page, clip(request.user_agent.string, 300), ip_hash(), country, city))
     resp = jsonify(ok=True)
     resp.set_cookie("am_access", signer.dumps(email), max_age=180 * 86400, httponly=True,
                     secure=request.is_secure, samesite="Lax")
@@ -158,8 +250,9 @@ def api_event():
     if ref == request.host.split(":")[0]:
         ref = ""
     device = "Phone" if re.search(r"Mobi|iPhone|Android", ua) else "Tablet" if re.search(r"iPad|Tablet", ua) else "Desktop"
-    q("INSERT INTO visits (at, path, ref, vid, device, email) VALUES (?, ?, ?, ?, ?, ?)",
-      (now(), path, ref, clip(d.get("vid"), 40), device, access_email()))
+    country, city = where()
+    q("INSERT INTO visits (at, path, ref, vid, device, email, country, city) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      (now(), path, ref, clip(d.get("vid"), 40), device, access_email(), country, city))
     return "", 204
 
 
@@ -216,11 +309,15 @@ def admin_home():
     days = 30
     since = (datetime.now(timezone.utc) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
     since7 = (datetime.now(timezone.utc) - timedelta(days=6)).strftime("%Y-%m-%d")
-    visits = q("SELECT at, path, ref, vid, device, email FROM visits WHERE at >= ? ORDER BY at", (since,))
+    visits = q("SELECT at, path, ref, vid, device, email, country, city FROM visits WHERE at >= ? ORDER BY at", (since,))
     v7 = [v for v in visits if v[0] >= since7]
     by_day = defaultdict(lambda: [0, set()])
     pages, refs, devices = defaultdict(int), defaultdict(int), defaultdict(int)
-    for at, path, ref, vid, dev, _ in visits:
+    countries, cities = defaultdict(set), defaultdict(set)
+    for at, path, ref, vid, dev, _, country, city in visits:
+        countries[country or "Unknown"].add(vid)
+        if city:
+            cities[f"{city}, {country}"].add(vid)
         by_day[at[:10]][0] += 1
         by_day[at[:10]][1].add(vid)
         pages[path] += 1
@@ -232,9 +329,12 @@ def admin_home():
         d = (today - timedelta(days=i)).isoformat()
         series.append((d, by_day[d][0], len(by_day[d][1])))
     peak = max([s[1] for s in series] + [1])
-    access = q("SELECT at, email, page FROM access ORDER BY at DESC LIMIT 500")
+    access = q("SELECT at, email, page, country, city FROM access ORDER BY at DESC LIMIT 500")
     leads = q("SELECT at, name, company, website, email, engagement, notes, page, access_email FROM leads ORDER BY at DESC LIMIT 500")
     people = q("SELECT email, COUNT(*), MAX(at), COUNT(DISTINCT path) FROM visits WHERE email IS NOT NULL GROUP BY email ORDER BY MAX(at) DESC LIMIT 200")
+    last_place = {}
+    for email, country, city in q("SELECT email, country, city FROM visits WHERE email IS NOT NULL AND country IS NOT NULL ORDER BY at"):
+        last_place[email] = ", ".join(x for x in (city, country) if x)
     tot_access = q("SELECT COUNT(*), COUNT(DISTINCT email) FROM access", one=True)
     tot_leads = q("SELECT COUNT(*) FROM leads", one=True)[0]
     leads7 = q("SELECT COUNT(*) FROM leads WHERE at >= ?", (since7,), one=True)[0]
@@ -242,6 +342,8 @@ def admin_home():
     top = lambda dct, n=10: sorted(dct.items(), key=lambda x: -x[1])[:n]
     return render_template_string(
         DASH_HTML, series=series, peak=peak, pages=top(pages), refs=top(refs), devices=top(devices, 3),
+        countries=top({k: len(v) for k, v in countries.items()}), cities=top({k: len(v) for k, v in cities.items()}),
+        last_place=last_place,
         total_visits=len(visits), v7=len(v7), u7=len({v[3] for v in v7}), access=access, leads=leads,
         people=people, tot_access=tot_access, tot_leads=tot_leads, leads7=leads7, access7=access7, days=days)
 
@@ -251,8 +353,8 @@ def admin_export(name):
     r = admin_required()
     if r:
         return r
-    cols = {"access": "at, email, page", "leads": "at, name, company, website, email, engagement, notes, page, access_email",
-            "visits": "at, path, ref, vid, device, email"}
+    cols = {"access": "at, email, page, country, city", "leads": "at, name, company, website, email, engagement, notes, page, access_email",
+            "visits": "at, path, ref, vid, device, email, country, city"}
     if name not in cols:
         abort(404)
     rows = q(f"SELECT {cols[name]} FROM {name} ORDER BY at DESC")
@@ -340,6 +442,8 @@ h2 a{font:500 13px Inter,sans-serif}
 .chart div{flex:1;background:var(--cyan);border-radius:3px 3px 0 0;min-height:2px;opacity:.85}
 .chart div:hover{opacity:1}
 .axis{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:6px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.grid2{grid-template-columns:minmax(0,1fr)}}
 .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 @media (max-width:900px){.grid3{grid-template-columns:minmax(0,1fr)}}
 .bars{list-style:none;margin:0;padding:0;display:grid;gap:8px}
@@ -376,20 +480,26 @@ td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}td.nw{w
 <div class="card"><p class="mono">Devices</p>{% if devices %}<ul class="bars">{% for k, n in devices %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / devices[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
 </div></section>
 
+<section><div class="grid2">
+<div class="card"><p class="mono">Countries · visitors</p>{% if countries %}<ul class="bars">{% for k, n in countries %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / countries[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
+<div class="card"><p class="mono">Cities · visitors</p>{% if cities %}<ul class="bars">{% for k, n in cities %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / cities[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No city data yet.</p>{% endif %}</div>
+</div></section>
+
 <section id="leads"><h2>Book a Call leads <a href="/admin/export/leads.csv">Download CSV</a></h2>
 {% if leads %}<div class="tw"><table><thead><tr><th>Received (UTC)</th><th>Name</th><th>Company</th><th>Email</th><th>Engagement</th><th>Anything we should know</th></tr></thead><tbody>
 {% for at, name, company, website, email, eng, notes, page, ae in leads %}<tr><td class="nw">{{ at[:16]|replace('T',' ') }}</td><td>{{ name }}</td><td>{{ company }}{% if website %}<br><a href="{{ website if website.startswith('http') else 'https://' ~ website }}" target="_blank" rel="noopener noreferrer">{{ website }}</a>{% endif %}</td><td><a href="mailto:{{ email }}">{{ email }}</a>{% if ae and ae != email %}<br><span class="mono">access: {{ ae }}</span>{% endif %}</td><td>{% if eng %}<span class="pill">{{ eng }}</span>{% endif %}</td><td class="note">{{ notes }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No leads yet. They appear here when someone sends the Book a Call form.</div>{% endif %}</section>
 
 <section id="access"><h2>Access emails <a href="/admin/export/access.csv">Download CSV</a></h2>
-{% if access %}<div class="tw"><table><thead><tr><th>Signed up (UTC)</th><th>Email</th><th>First page asked for</th></tr></thead><tbody>
-{% for at, email, page in access %}<tr><td class="nw">{{ at[:16]|replace('T',' ') }}</td><td><a href="mailto:{{ email }}">{{ email }}</a></td><td>{{ page }}</td></tr>{% endfor %}
+{% if access %}<div class="tw"><table><thead><tr><th>Signed up (UTC)</th><th>Email</th><th>First page asked for</th><th>Location</th></tr></thead><tbody>
+{% for at, email, page, country, city in access %}<tr><td class="nw">{{ at[:16]|replace('T',' ') }}</td><td><a href="mailto:{{ email }}">{{ email }}</a></td><td>{{ page }}</td><td>{{ [city, country]|select|join(', ') }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No sign-ups yet.</div>{% endif %}</section>
 
 <section id="people"><h2>Visitor activity by email</h2>
-{% if people %}<div class="tw"><table><thead><tr><th>Email</th><th>Page views</th><th>Pages seen</th><th>Last seen (UTC)</th></tr></thead><tbody>
-{% for email, n, last, distinct in people %}<tr><td>{{ email }}</td><td>{{ n }}</td><td>{{ distinct }}</td><td class="nw">{{ last[:16]|replace('T',' ') }}</td></tr>{% endfor %}
+{% if people %}<div class="tw"><table><thead><tr><th>Email</th><th>Page views</th><th>Pages seen</th><th>Last seen (UTC)</th><th>Location</th></tr></thead><tbody>
+{% for email, n, last, distinct in people %}<tr><td>{{ email }}</td><td>{{ n }}</td><td>{{ distinct }}</td><td class="nw">{{ last[:16]|replace('T',' ') }}</td><td>{{ last_place.get(email, '') }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No signed-in visits yet.</div>{% endif %}</section>
+<p class="mono" style="margin:32px 0 40px;text-transform:none;letter-spacing:0">Locations are approximate, from <a href="https://db-ip.com">IP Geolocation by DB-IP</a>.</p>
 </main></body></html>"""
 
 init_db()

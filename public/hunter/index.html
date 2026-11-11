@@ -543,12 +543,13 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 #am-book button[disabled]{opacity:.6;cursor:wait}
 #am-book .bk-done{text-align:center;padding:18px 0 8px}
 #am-book .bk-done svg{width:52px;height:52px;color:var(--cyan,#7FCFE0)}
+#am-book .bk-cal{display:inline-block;font:600 15px var(--font-body,Inter,sans-serif);border-radius:999px;padding:12px 22px;background:#B6E6F0;color:#1F2B3D;text-decoration:none}
 #am-book .bk-done p{color:var(--muted,#9AA8B9);margin:8px 0 18px}
 </style>
 <div class="bk">
   <div class="bk-top">
     <div><p class="bk-k">Book a Call</p><h2 id="am-book-h">Tell us about your project</h2>
-      <p class="bk-sub">We will reply within one working day to find a time.</p></div>
+      <p class="bk-sub">Share a few details, then pick a time in the calendar.</p></div>
     <button class="bk-x" type="button" data-am-close aria-label="Close">×</button>
   </div>
   <form id="am-book-f" novalidate>
@@ -566,8 +567,8 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   </form>
   <div class="bk-done" hidden>
     <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M15 24.5l6 6 12-13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <h2>Thanks, we have it</h2><p>We will be in touch within one working day.</p>
-    <button type="submit" data-am-close>Close</button>
+    <h2>Thanks, we have it</h2><p>Taking you to the calendar to pick a time…</p>
+    <a class="bk-cal" href="https://cal.com/moshe-david/ai-transformation-discovery?overlayCalendar=true">Open the calendar</a>
   </div>
 </div>
 <script>
@@ -591,7 +592,11 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
     var body={name:v('name'),company:v('company'),website:v('website'),email:v('email'),engagement:v('engagement'),notes:v('notes'),hp:v('hp'),page:location.pathname};
     fetch('/api/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'})
       .then(function(r){return r.json().then(function(j){if(!r.ok||!j.ok)throw new Error(j.error||'');})})
-      .then(function(){ f.reset(); f.hidden=true; done.hidden=false; })
+      .then(function(){
+        var u='https://cal.com/moshe-david/ai-transformation-discovery?overlayCalendar=true&name='+encodeURIComponent(body.name)+'&email='+encodeURIComponent(body.email);
+        f.reset(); f.hidden=true; done.hidden=false; done.querySelector('a').href=u;
+        setTimeout(function(){ location.href=u; },1200);
+      })
       .catch(function(x){ err.textContent=(x&&x.message)||'Something went wrong. Please email hello@automagic.agency.'; })
       .then(function(){ btn.disabled=false; btn.textContent='Send request'; });
   });
