@@ -30,7 +30,7 @@ FILES_DIR = os.path.join(S.DATA_DIR, "files")
 MAX_FILE = 25 * 1024 * 1024
 STRIPE_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
 CAL_URL = "https://cal.com/moshe-david/ai-transformation-discovery?overlayCalendar=true"
-STATUSES = ["Lead", "Active", "Paused", "Past"]
+STATUSES = ["Lead", "Introduction", "Active", "Paused", "Past"]
 DOC_TYPES = ["Proposal", "Agreement", "Statement of work", "NDA", "Report", "Other"]
 INLINE = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"}
 CLIENT_FIELDS = ["company", "website", "industry", "country", "address", "status", "engagement",

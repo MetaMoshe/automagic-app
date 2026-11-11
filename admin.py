@@ -286,7 +286,7 @@ def lead_convert(lid):
         cid = m[0]
     else:
         c = {k: "" for k in P.CLIENT_FIELDS} | {
-            "company": d["company"] or d["name"], "website": d["website"] or "", "status": "Active",
+            "company": d["company"] or d["name"], "website": d["website"] or "", "status": "Introduction",
             "engagement": d["engagement"] if d["engagement"] in S.TYPES else "", "contact_name": d["name"],
             "contact_email": d["email"] or None,
             "notes": "\n\n".join(x for x in (d["notes"] and "From the Book a Call form:\n" + d["notes"], d["admin_notes"]) if x)}
