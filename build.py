@@ -47,7 +47,8 @@ html{scroll-padding-top:calc(var(--am-nav-h) + 24px)!important}
 .am-links::-webkit-scrollbar{display:none}
 .am-links a{font-family:var(--font-body);font-size:14px;font-weight:500;color:#C5D0DC;text-decoration:none;padding:7px 12px;border-radius:999px;white-space:nowrap}
 .am-links a:hover{color:#fff;background:rgba(255,255,255,.08)}
-.am-links a[aria-current="page"]{color:#1F2B3D;background:#B6E6F0}
+.am-links a.am-cta{color:#1F2B3D;background:#B6E6F0;font-weight:600}
+.am-links a.am-cta:hover{background:#D3F0F6;color:#1F2B3D}
 @media (max-width:640px){.am-home span{display:none}.am-wm{height:18px}.am-nav-in{gap:10px}.am-links a{font-size:13px;padding:6px 10px}}
 .band .topbar .brand{display:none}
 .band .topbar{justify-content:flex-start;padding-block:18px 0}
@@ -75,13 +76,16 @@ def logo():
     return LOGO + "<span>Automagic AI</span>"
 
 
+WEBSITE = "https://automagic.agency"
+BOOK_CALL = "mailto:hello@automagic.agency?subject=Book%20a%20call"
+EMAIL_OLD, EMAIL = "hello@moshedavid.xyz", "hello@automagic.agency"
+
+
 def nav(active):
-    links = "".join(
-        '<a href="%s"%s>%s</a>' % (href(s), ' aria-current="page"' if s == active else '', label)
-        for s, _, label, _, _ in PAGES)
     return (f'<nav class="am-nav" aria-label="Site"><div class="am-nav-in">'
             f'<a class="am-home" href="/" aria-label="Automagic portfolio home">{logo()}</a>'
-            f'<div class="am-links">{links}</div></div></nav>')
+            f'<div class="am-links"><a href="{WEBSITE}">Return to website</a>'
+            f'<a class="am-cta" href="{BOOK_CALL}">Book a Call</a></div></div></nav>')
 
 
 def more(active):
@@ -189,7 +193,7 @@ def build():
         if slug == "hunter":
             html = clean_hunter(html)
         html = re.sub(r"<body>", lambda m: "<body>" + nav(slug), html, count=1)
-        html = html.replace("/*%%PORTFOLIO_DATA%%*/", data)
+        html = html.replace("/*%%PORTFOLIO_DATA%%*/", data).replace(EMAIL_OLD, EMAIL)
         # Cross-links: claude.ai artifact URLs -> in-site pages, opened in place.
         for a, path in ids.items():
             html = html.replace(f"https://claude.ai/artifact/{a}", path)
@@ -208,7 +212,7 @@ def build():
         shutil.copy(WORDMARK, OUT / "brand" / WORDMARK.name)
     endpoint = os.environ.get("FORM_ENDPOINT", "").strip()
     for slug, src in STATIC:
-        html = dark((SRC / src).read_text(encoding="utf-8").replace("%%FORM_ENDPOINT%%", endpoint))
+        html = dark((SRC / src).read_text(encoding="utf-8").replace("%%FORM_ENDPOINT%%", endpoint)).replace(EMAIL_OLD, EMAIL)
         dest = OUT / slug / "index.html"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")

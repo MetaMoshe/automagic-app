@@ -108,10 +108,12 @@ section.blk{padding-block:56px 8px}
 .tycard .tyn{font-family:var(--font-mono);font-size:11.5px;color:var(--cyan-ink);margin-top:auto}
 
 /* filters + client grid */
-.filters{display:grid;gap:10px;margin:0 0 18px}
-.fgrp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.flbl{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);width:104px}
-@media (max-width:640px){.flbl{width:100%}}
+.filters{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;overflow-x:auto;scrollbar-width:none;margin:0 0 18px;padding-bottom:2px}
+.filters::-webkit-scrollbar{display:none}
+.fgrp{display:contents}
+.fsep{flex:none;width:1px;height:22px;background:var(--line);margin:0 6px}
+.fbtn{flex:none;white-space:nowrap;padding:8px 11px}
+.fsep{margin:0 3px}
 .fbtn{font:500 13px var(--font-body);padding:8px 14px;min-height:36px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
 .fbtn:hover{color:var(--ink);border-color:var(--slate)}
 .fbtn.on{background:var(--navy);border-color:var(--navy);color:var(--surface)}
@@ -181,31 +183,6 @@ footer a{color:var(--cyan-ink)}
   <div class="feat">
 
     <a class="fc" href="/hunter/">
-      <div class="fc-fig">
-        <svg viewBox="0 0 340 168" role="img" aria-label="PESA architecture: a PESA per consultant, a shared control plane, 12 agents in four suites, all on the Hunter CRM">
-          <defs><marker id="ah1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" class="dg-ah"/></marker></defs>
-          <text x="0" y="12" class="dg-s">PEOPLE</text>
-          <rect x="62" y="2" width="278" height="28" rx="6" class="dg-box"/>
-          <rect x="68" y="7" width="60" height="18" rx="4" class="dg-chip"/><text x="98" y="20" class="dg-t" text-anchor="middle">Partner</text>
-          <rect x="134" y="7" width="66" height="18" rx="4" class="dg-chip"/><text x="167" y="20" class="dg-t" text-anchor="middle">Consultant</text>
-          <rect x="206" y="7" width="66" height="18" rx="4" class="dg-chip"/><text x="239" y="20" class="dg-t" text-anchor="middle">Researcher</text>
-          <rect x="278" y="7" width="56" height="18" rx="4" class="dg-chip"/><text x="306" y="20" class="dg-t" text-anchor="middle">BD</text>
-          <path d="M201 31v9" class="dg-a" marker-end="url(#ah1)"/>
-          <text x="0" y="56" class="dg-s">CONTROL</text>
-          <rect x="62" y="44" width="278" height="26" rx="6" class="dg-box"/><text x="201" y="61" class="dg-tb" text-anchor="middle">Shared rules, memory, orchestration</text>
-          <path d="M201 71v9" class="dg-a" marker-end="url(#ah1)"/>
-          <text x="0" y="96" class="dg-s">AGENTS</text>
-          <rect x="62" y="84" width="278" height="28" rx="6" class="dg-box"/>
-          <rect x="68" y="89" width="62" height="18" rx="4" class="dg-chip"/><text x="99" y="102" class="dg-t" text-anchor="middle">Sales</text>
-          <rect x="135" y="89" width="62" height="18" rx="4" class="dg-chip"/><text x="166" y="102" class="dg-t" text-anchor="middle">Search</text>
-          <rect x="202" y="89" width="70" height="18" rx="4" class="dg-chip"/><text x="237" y="102" class="dg-t" text-anchor="middle">Relationships</text>
-          <rect x="277" y="89" width="57" height="18" rx="4" class="dg-chip"/><text x="305" y="102" class="dg-t" text-anchor="middle">Ops</text>
-          <path d="M201 113v9" class="dg-a" marker-end="url(#ah1)"/>
-          <text x="0" y="139" class="dg-s">RECORD</text>
-          <rect x="62" y="126" width="278" height="26" rx="6" class="dg-hot"/><text x="201" y="143" class="dg-th" text-anchor="middle">Hunter CRM · system of record</text>
-          <text x="62" y="166" class="dg-s">12 AGENTS · 4 SUITES · 3 WAVES</text>
-        </svg>
-      </div>
       <div class="fc-body">
         <span class="fc-sector" data-flag="Israel">Executive search · Israel</span>
         <h3>Hunter Executive</h3>
@@ -217,25 +194,6 @@ footer a{color:var(--cyan-ink)}
     </a>
 
     <a class="fc" href="/zugi/">
-      <div class="fc-fig">
-        <svg viewBox="0 0 340 168" role="img" aria-label="Zugi.ai hybrid reasoning: a request is orchestrated, grounded in data and memory, scored deterministically, then reasoned over by language models into an investment memo">
-          <defs><marker id="ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" class="dg-ah"/></marker></defs>
-          <text x="0" y="10" class="dg-s">SOFTWARE CONTROLS THE WORKFLOW</text>
-          <rect x="0" y="18" width="96" height="40" rx="6" class="dg-box"/><text x="48" y="36" class="dg-tb" text-anchor="middle">Request</text><text x="48" y="50" class="dg-t" text-anchor="middle">investor asks</text>
-          <path d="M97 38h20" class="dg-a" marker-end="url(#ah2)"/>
-          <rect x="122" y="18" width="96" height="40" rx="6" class="dg-box"/><text x="170" y="36" class="dg-tb" text-anchor="middle">Orchestrator</text><text x="170" y="50" class="dg-t" text-anchor="middle">picks workflow</text>
-          <path d="M219 38h20" class="dg-a" marker-end="url(#ah2)"/>
-          <rect x="244" y="18" width="96" height="40" rx="6" class="dg-box"/><text x="292" y="36" class="dg-tb" text-anchor="middle">Context</text><text x="292" y="50" class="dg-t" text-anchor="middle">data + memory</text>
-          <path d="M292 59v14H48v14" class="dg-a" marker-end="url(#ah2)"/>
-          <text x="0" y="104" class="dg-s" opacity="0">.</text>
-          <rect x="0" y="92" width="96" height="40" rx="6" class="dg-box"/><text x="48" y="110" class="dg-tb" text-anchor="middle">Scoring</text><text x="48" y="124" class="dg-t" text-anchor="middle">fixed, explainable</text>
-          <path d="M97 112h20" class="dg-a" marker-end="url(#ah2)"/>
-          <rect x="122" y="92" width="96" height="40" rx="6" class="dg-box"/><text x="170" y="110" class="dg-tb" text-anchor="middle">AI reasoning</text><text x="170" y="124" class="dg-t" text-anchor="middle">multi-LLM</text>
-          <path d="M219 112h20" class="dg-a" marker-end="url(#ah2)"/>
-          <rect x="244" y="92" width="96" height="40" rx="6" class="dg-hot"/><text x="292" y="110" class="dg-th" text-anchor="middle">Memo</text><text x="292" y="124" class="dg-th" text-anchor="middle" style="font-weight:400;font-family:var(--font-body);font-size:11px">with sources</text>
-          <text x="0" y="160" class="dg-s">MODELS EXPLAIN · GOVERNANCE LAYER ON DATA</text>
-        </svg>
-      </div>
       <div class="fc-body">
         <span class="fc-sector" data-flag="United Kingdom">Private markets · United Kingdom</span>
         <h3>Zugi.ai</h3>
@@ -247,28 +205,6 @@ footer a{color:var(--cyan-ink)}
     </a>
 
     <a class="fc" href="/revscale/">
-      <div class="fc-fig">
-        <svg viewBox="0 0 340 168" role="img" aria-label="Revscale FranchiseHub: one record moves from candidate to disclosed to franchisee to location, with six AI agents installed across the lifecycle">
-          <defs><marker id="ah3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" class="dg-ah"/></marker></defs>
-          <text x="0" y="10" class="dg-s">ONE RECORD, CANDIDATE TO OPEN UNIT</text>
-          <rect x="0" y="18" width="72" height="40" rx="6" class="dg-box"/><text x="36" y="36" class="dg-tb" text-anchor="middle">Candidate</text><text x="36" y="50" class="dg-t" text-anchor="middle">pipeline</text>
-          <path d="M73 38h13" class="dg-a" marker-end="url(#ah3)"/>
-          <rect x="89" y="18" width="72" height="40" rx="6" class="dg-box"/><text x="125" y="36" class="dg-tb" text-anchor="middle">Disclosed</text><text x="125" y="50" class="dg-t" text-anchor="middle">FDD · sign</text>
-          <path d="M162 38h13" class="dg-a" marker-end="url(#ah3)"/>
-          <rect x="178" y="18" width="72" height="40" rx="6" class="dg-box"/><text x="214" y="36" class="dg-tb" text-anchor="middle">Franchisee</text><text x="214" y="50" class="dg-t" text-anchor="middle">onboarding</text>
-          <path d="M251 38h13" class="dg-a" marker-end="url(#ah3)"/>
-          <rect x="267" y="18" width="73" height="40" rx="6" class="dg-hot"/><text x="303" y="36" class="dg-th" text-anchor="middle">Location</text><text x="303" y="50" class="dg-th" text-anchor="middle" style="font-weight:400;font-family:var(--font-body);font-size:11px">live</text>
-          <path d="M36 59v12M125 59v12M214 59v12M303 59v12" class="dg-a" stroke-dasharray="3 3"/>
-          <text x="0" y="86" class="dg-s">AGENTS AT EVERY LOCATION · 24/7</text>
-          <rect x="0" y="94" width="108" height="22" rx="11" class="dg-chip"/><text x="54" y="109" class="dg-t" text-anchor="middle">Voice</text>
-          <rect x="116" y="94" width="108" height="22" rx="11" class="dg-chip"/><text x="170" y="109" class="dg-t" text-anchor="middle">Inbound</text>
-          <rect x="232" y="94" width="108" height="22" rx="11" class="dg-chip"/><text x="286" y="109" class="dg-t" text-anchor="middle">Chatbot</text>
-          <rect x="0" y="122" width="108" height="22" rx="11" class="dg-chip"/><text x="54" y="137" class="dg-t" text-anchor="middle">Outbound</text>
-          <rect x="116" y="122" width="108" height="22" rx="11" class="dg-chip"/><text x="170" y="137" class="dg-t" text-anchor="middle">Web Pixel</text>
-          <rect x="232" y="122" width="108" height="22" rx="11" class="dg-chip"/><text x="286" y="137" class="dg-t" text-anchor="middle">Digital</text>
-          <text x="0" y="164" class="dg-s">SIX MODULES ON ONE DATA MODEL</text>
-        </svg>
-      </div>
       <div class="fc-body">
         <span class="fc-sector" data-flag="United States">Franchising · United States</span>
         <h3>Revscale</h3>
@@ -292,7 +228,7 @@ footer a{color:var(--cyan-ink)}
 <section class="blk" id="clients" aria-labelledby="h-clients">
   <p class="eyebrow">All engagements</p>
   <h2 id="h-clients">Every client, at a glance</h2>
-  <p class="sec-lede">Filter by engagement type, company type or market. Each card opens the full client profile or case study.</p>
+  <p class="sec-lede">Filter by engagement type, company type or market; tap a filter again to clear it. Each card opens the full client profile or case study.</p>
   <div class="filters" role="group" aria-label="Filter clients" id="filters"></div>
   <div class="grid" id="grid"></div>
   <p class="empty" id="empty" hidden>No clients match these filters.</p>
@@ -358,12 +294,12 @@ footer a{color:var(--cyan-ink)}
     var n=CLIENTS.filter(function(c){return (c.types||[]).indexOf(k)>-1}).length;
     return '<button type="button" class="tycard" data-pick="'+k+'"><span><span class="ty ty-'+k+' main">'+TYPES[k][0]+'</span></span><p>'+esc(TYPES[k][1])+'</p><p class="tyn">'+n+' '+(n===1?'client':'clients')+' · Show them →</p></button>'}).join('');
 
-  function grp(g,label,items){return '<div class="fgrp" data-g="'+g+'"><span class="flbl">'+label+'</span><button type="button" class="fbtn on" data-f="all" aria-pressed="true">All</button>'+
+  function grp(g,label,items){return '<span class="fsep" aria-hidden="true"></span><div class="fgrp" role="group" aria-label="'+label+'" data-g="'+g+'">'+
     items.map(function(it){return '<button type="button" class="fbtn" data-f="'+it[0]+'" aria-pressed="false">'+it[1]+'</button>'}).join('')+'</div>'}
   var fl=document.getElementById('filters');
-  fl.innerHTML=grp('types','Engagement',Object.keys(TYPES).map(function(k){return [k,TYPES[k][0]]}))+
+  fl.innerHTML='<button type="button" class="fbtn on" id="f-all" aria-pressed="true">All</button>'+grp('types','Engagement',Object.keys(TYPES).map(function(k){return [k,TYPES[k][0]]}))+
     grp('size','Company',Object.keys(SIZES).map(function(k){return [k,SIZES[k]]}))+
-    grp('mkt','Market',['il','uk','us'].map(function(k){return [k,FLAGS[k]+MK[k]]}));
+    grp('mkt','Market',['il','uk','us'].map(function(k){return [k,FLAGS[k]+k.toUpperCase()]}));
   var sel={types:'all',size:'all',mkt:'all'};
   function apply(){
     var shown=0;
@@ -375,8 +311,12 @@ footer a{color:var(--cyan-ink)}
     document.getElementById('empty').hidden=shown>0;
     [].forEach.call(fl.querySelectorAll('.fgrp'),function(g){var v=sel[g.getAttribute('data-g')];
       [].forEach.call(g.querySelectorAll('.fbtn'),function(b){var on=b.getAttribute('data-f')===v;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)})});
+    var none=sel.types==='all'&&sel.size==='all'&&sel.mkt==='all',a=document.getElementById('f-all');a.classList.toggle('on',none);a.setAttribute('aria-pressed',none);
   }
-  fl.addEventListener('click',function(e){var b=e.target.closest('.fbtn');if(!b)return;sel[b.parentNode.getAttribute('data-g')]=b.getAttribute('data-f');apply()});
+  fl.addEventListener('click',function(e){var b=e.target.closest('.fbtn');if(!b)return;
+    if(b.id==='f-all'){sel={types:'all',size:'all',mkt:'all'}}
+    else{var g=b.parentNode.getAttribute('data-g'),f=b.getAttribute('data-f');sel[g]=sel[g]===f?'all':f}
+    apply()});
   document.getElementById('types-grid').addEventListener('click',function(e){var b=e.target.closest('[data-pick]');if(!b)return;
     sel={types:b.getAttribute('data-pick'),size:'all',mkt:'all'};apply();document.getElementById('clients').scrollIntoView()});
 })();
