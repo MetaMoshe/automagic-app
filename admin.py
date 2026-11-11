@@ -331,6 +331,9 @@ def lead_convert(lid):
         cid = S.q("SELECT id FROM clients ORDER BY id DESC", one=True)[0]
     S.q("UPDATE leads SET status = 'Won', client_id = ?, updated = ? WHERE id = ?", (cid, S.now(), lid))
     P.commit()
+    serr = P.ensure_stripe_customer(cid)
+    if serr:
+        return redirect(f"/admin/clients/{cid}?saved=1&stripe_error=" + P.urllib.parse.quote("client created, but the Stripe customer wasn't: " + serr))
     return redirect(f"/admin/clients/{cid}?saved=1")
 
 
