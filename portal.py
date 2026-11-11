@@ -70,6 +70,10 @@ def init():
             elif col not in have:
                 S.q(f"ALTER TABLE clients ADD COLUMN {col} TEXT")
         if S.DATABASE_URL:
+            S.q("ALTER TABLE clients ADD COLUMN IF NOT EXISTS logo TEXT")
+        elif "logo" not in have:
+            S.q("ALTER TABLE clients ADD COLUMN logo TEXT")
+        if S.DATABASE_URL:
             S.q("ALTER TABLE clients ADD COLUMN IF NOT EXISTS consultant_id INTEGER")
         elif "consultant_id" not in [r[1] for r in S.q("PRAGMA table_info(clients)")]:
             S.q("ALTER TABLE clients ADD COLUMN consultant_id INTEGER")
@@ -90,10 +94,10 @@ def commit():
 
 def client_row(cid):
     r = S.q(f"SELECT id, created, updated, {', '.join(CLIENT_FIELDS)}, password_hash, portal_enabled, session_ver, last_login, "
-            "consultant_id FROM clients WHERE id = ?", (cid,), one=True)
+            "consultant_id, logo FROM clients WHERE id = ?", (cid,), one=True)
     if not r:
         return None
-    keys = ["id", "created", "updated"] + CLIENT_FIELDS + ["password_hash", "portal_enabled", "session_ver", "last_login", "consultant_id"]
+    keys = ["id", "created", "updated"] + CLIENT_FIELDS + ["password_hash", "portal_enabled", "session_ver", "last_login", "consultant_id", "logo"]
     return dict(zip(keys, r))
 
 
@@ -151,7 +155,7 @@ def guards():
         origin = request.headers.get("Origin")
         if origin and urllib.parse.urlparse(origin).netloc != request.host:
             abort(403)
-    uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p == "/portal/api/drive" or p.startswith("/admin/consultants/")
+    uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p == "/portal/api/drive" or p.startswith("/admin/consultants/") or (p.startswith("/admin/clients/") and p.endswith("/logo"))
     limit = MAX_FILE + 1024 * 1024 if uploads else 64 * 1024
     if (request.content_length or 0) > limit:
         abort(413)
@@ -404,6 +408,69 @@ def admin_upload(cid):
         name, e = save_upload(cid, f, kind, cat, "admin")
         (saved if name else errors).append(name or e)
     return jsonify(ok=not errors, saved=saved, errors=errors)
+
+
+LOGO_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/svg+xml": ".svg"}
+
+
+def logo_response(c):
+    name = os.path.basename((c or {}).get("logo") or "")
+    path = os.path.join(FILES_DIR, str(int(c["id"])), name) if name else ""
+    if not name or not os.path.isfile(path):
+        abort(404)
+    resp = send_file(path, max_age=300)
+    # SVG can carry script: never let it run if the file is opened directly.
+    resp.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    return resp
+
+
+@bp.post("/admin/clients/<int:cid>/logo")
+def admin_client_logo(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    if not c:
+        abort(404)
+    folder = os.path.join(FILES_DIR, str(int(cid)))
+    old = os.path.basename(c.get("logo") or "")
+    if request.form.get("remove"):
+        name, msg = None, "Logo removed."
+    else:
+        f = request.files.get("logo")
+        mime = mimetypes.guess_type(f.filename)[0] if f and f.filename else None
+        data = f.read(2 * 1024 * 1024 + 1) if f else b""
+        if mime not in LOGO_TYPES or not 0 < len(data) <= 2 * 1024 * 1024:
+            return redirect(f"/admin/clients/{cid}?logo_error=1")
+        os.makedirs(folder, exist_ok=True)
+        name = "logo-" + secrets.token_hex(8) + LOGO_TYPES[mime]
+        with open(os.path.join(folder, name), "wb") as out:
+            out.write(data)
+        msg = "Logo saved."
+    S.q("UPDATE clients SET logo = ?, updated = ? WHERE id = ?", (name, S.now(), cid))
+    commit()
+    if old:
+        try:
+            os.remove(os.path.join(folder, old))
+        except OSError:
+            pass
+    return redirect(f"/admin/clients/{cid}?saved=1&logo_note=" + urllib.parse.quote(msg))
+
+
+@bp.get("/admin/clients/<int:cid>/logo")
+def admin_client_logo_get(cid):
+    r = admin_only()
+    if r:
+        return r
+    return logo_response(client_row(cid))
+
+
+@bp.get("/portal/logo")
+def portal_logo():
+    c = current_client()
+    if not c:
+        abort(404)
+    return logo_response(c)
 
 
 @bp.get("/admin/clients/<int:cid>/files/<int:fid>")
@@ -722,6 +789,12 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
 </form>
 <div style="display:grid;gap:18px">
 {% if cid %}
+ <form class="card" method="post" action="/admin/clients/{{ cid }}/logo" enctype="multipart/form-data"><p class="mono">Company logo</p>
+  <p class="empty" style="margin:4px 0 12px;font-size:14px">Shown in the client's portal. PNG, JPG, WebP or SVG, up to 2 MB. A transparent logo works best.</p>
+  {% if request.args.get('logo_error') %}<p class="err" role="alert" style="font-size:14px">Logo not saved: use a PNG, JPG, WebP or SVG under 2 MB.</p>{% elif request.args.get('logo_note') %}<p class="ok" role="status" style="font-size:14px">{{ request.args.get('logo_note') }}</p>{% endif %}
+  {% if c.logo %}<div style="background:#F4F7FA;border-radius:10px;padding:14px;display:grid;place-items:center;margin-bottom:12px"><img src="/admin/clients/{{ cid }}/logo?v={{ c.logo }}" alt="{{ c.company }} logo" style="max-height:64px;max-width:100%"></div>{% endif %}
+  <div class="row"><input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/svg+xml" aria-label="Logo file" style="flex:1;min-width:0"><button type="submit">{{ 'Replace' if c.logo else 'Upload' }}</button>{% if c.logo %}<button class="ghost" type="submit" name="remove" value="1" formnovalidate>Remove</button>{% endif %}</div>
+ </form>
  <div class="card"><p class="mono">Project documents</p><p class="empty" style="margin:4px 0 12px;font-size:14px">Proposals, agreements and other documents the client sees under Project docs.</p>
   <label class="f" for="cat">Document type</label><select id="cat">{% for d in doc_types %}<option>{{ d }}</option>{% endfor %}</select>
   <div class="drop" data-kind="legal" tabindex="0" role="button" style="margin-top:10px"><b>Drop files here</b> or click to choose<br><small>Up to 25 MB each</small></div>
@@ -864,6 +937,13 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .hero h1{font-size:clamp(32px,4.4vw,52px);font-weight:600;line-height:1.05;margin:14px 0 10px}
 .hero h1 span{color:var(--cyan)}.hero p.co{color:var(--ink);font:600 clamp(18px,2vw,22px) var(--fd);letter-spacing:-.01em;margin:-4px 0 14px}.hero p{color:var(--muted);max-width:62ch;margin:0;font-size:17px}
 /* overview */
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.clogo{flex:none;width:clamp(96px,14vw,168px);height:clamp(64px,8vw,96px);border-radius:12px;background:#F4F7FA;display:grid;place-items:center;padding:12px 16px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.clogo img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+@media (max-width:560px){.hero-top{flex-direction:column-reverse;align-items:flex-start}.clogo{width:120px;height:64px}}
+.top .who{display:flex;align-items:center;gap:12px}.top .who>span{min-width:0}
+.hlogo{flex:none;width:36px;height:36px;border-radius:8px;background:#F4F7FA;display:grid;place-items:center;padding:4px}
+.hlogo img{max-width:100%;max-height:100%;object-fit:contain;display:block}
 .hero.slim{padding:clamp(22px,3vw,32px) clamp(20px,3vw,34px)}
 .hero.slim h1{font-size:clamp(30px,3.6vw,44px);margin:12px 0 6px}
 .hero.slim p.co{margin:0}
@@ -950,7 +1030,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 .kv{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 14px;font-size:14.5px;margin:0}.kv dt{color:var(--faint)}.kv dd{margin:0}
 </style></head><body>
 <header class="top"><div class="in"><a href="/" aria-label="Automagic home"><img src="/brand/wordmark-light.svg" alt="Automagic"></a>
-<div class="who"><b>{{ c.company }}</b>{{ c.contact_email }}</div>
+<div class="who">{% if c.logo %}<span class="hlogo"><img src="/portal/logo?v={{ c.logo }}" alt=""></span>{% endif %}<span><b>{{ c.company }}</b>{{ c.contact_email }}</span></div>
 <form method="post" action="/portal/logout" style="margin:0"><button class="btn btn-g" type="submit">Sign out</button></form></div></header>
 <div class="shell">
 <nav class="side" aria-label="Portal">
@@ -979,8 +1059,9 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  </div>
 {% endmacro %}
 <section class="view" id="v-home">
- <div class="hero slim"><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
-  {% if c.company %}<p class="co">{{ c.company }}</p>{% endif %}
+ <div class="hero slim"><div class="hero-top"><div><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
+  {% if c.company %}<p class="co">{{ c.company }}</p>{% endif %}</div>
+  {% if c.logo %}<div class="clogo"><img src="/portal/logo?v={{ c.logo }}" alt="{{ c.company }} logo"></div>{% endif %}</div>
   <div class="chips">{% if c.engagement %}<span class="chip"><b>{{ c.engagement }}</b></span>{% endif %}<span class="chip{% if c.status == 'Active' %} ok{% endif %}">{{ c.status or 'Active' }}</span></div>
   {% if c.phase in phases %}{% set cur = phases.index(c.phase) %}<ol class="phases" aria-label="Project progress">{% for ph in phases %}<li class="{{ 'done' if loop.index0 < cur else 'now' if loop.index0 == cur else '' }}"{% if loop.index0 == cur %} aria-current="step"{% endif %}><span>{{ ph }}</span></li>{% endfor %}</ol>{% endif %}
  </div>
