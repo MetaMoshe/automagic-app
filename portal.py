@@ -442,6 +442,7 @@ def admin_client(cid=None):
     if cid and not c:
         abort(404)
     err, note, new_pw = "", request.args.get("saved") and "Saved.", ""
+    created = False
     if request.method == "POST":
         f = request.form
         vals = {k: S.clip(f.get(k), 4000 if k in ("notes", "address", "consultant_note") else 300) for k in CLIENT_FIELDS}
@@ -481,12 +482,16 @@ def admin_client(cid=None):
                 S.q(f"INSERT INTO clients (created, updated, {', '.join(CLIENT_FIELDS)}, portal_enabled, consultant_id) VALUES (?, ?, {', '.join('?' * len(CLIENT_FIELDS))}, ?, ?)",
                     (S.now(), S.now(), *args, portal, con_id))
                 cid = S.q("SELECT id FROM clients WHERE company = ? ORDER BY id DESC", (vals["company"],), one=True)[0]
+                created = True
             if pw:
                 S.q("UPDATE clients SET password_hash = ?, session_ver = COALESCE(session_ver, 1) + 1 WHERE id = ?",
                     (generate_password_hash(pw), cid))
             commit()
             if new_pw:
                 session["new_pw"] = [cid, new_pw]
+            serr = ensure_stripe_customer(cid) if created else ""
+            if serr:
+                return redirect(f"/admin/clients/{cid}?saved=1&stripe_error=" + urllib.parse.quote("client saved, but the Stripe customer wasn't created: " + serr))
             return redirect(f"/admin/clients/{cid}?saved=1")
     shown = session.pop("new_pw", None) if request.method == "GET" else None
     if shown and shown[0] == cid:
@@ -517,19 +522,36 @@ def admin_client_delete(cid):
     return redirect("/admin/clients")
 
 
+def ensure_stripe_customer(cid):
+    """Link the client to a Stripe customer: reuse one with the same email, or create one.
+    Returns an error message, or "" when linked (or when Stripe isn't connected)."""
+    c = client_row(cid)
+    if not STRIPE_KEY or not c or c.get("stripe_customer_id"):
+        return ""
+    try:
+        cust = None
+        if c["contact_email"]:
+            found = stripe("GET", "customers", {"email": c["contact_email"], "limit": 1}).get("data") or []
+            cust = found[0] if found else None
+        if not cust:
+            cust = stripe("POST", "customers", {"name": c["company"], "email": c["contact_email"] or "",
+                                                "metadata[automagic_client_id]": str(cid)})
+        S.q("UPDATE clients SET stripe_customer_id = ? WHERE id = ?", (cust["id"], cid))
+        commit()
+        return ""
+    except Exception as e:
+        return str(e) or "Stripe customer could not be created."
+
+
 @bp.post("/admin/clients/<int:cid>/stripe")
 def admin_client_stripe(cid):
     r = admin_only()
     if r:
         return r
-    c = client_row(cid) or abort(404)
-    try:
-        cust = stripe("POST", "customers", {"name": c["company"], "email": c["contact_email"] or "",
-                                            "metadata[automagic_client_id]": str(cid)})
-        S.q("UPDATE clients SET stripe_customer_id = ? WHERE id = ?", (cust["id"], cid))
-        commit()
-    except Exception as e:
-        return redirect(f"/admin/clients/{cid}?stripe_error=" + urllib.parse.quote(str(e)))
+    client_row(cid) or abort(404)
+    err = ensure_stripe_customer(cid)
+    if err:
+        return redirect(f"/admin/clients/{cid}?stripe_error=" + urllib.parse.quote(err))
     return redirect(f"/admin/clients/{cid}?saved=1")
 
 
@@ -1048,7 +1070,7 @@ ADMIN_CLIENT = U.head("clients", "Client") + TABS_SRC + """
  </div>
  <div class="card"><p class="mono">Invoices (Stripe)</p>
   {% if not stripe %}<p class="empty" style="font-size:14px">Stripe isn't connected. Add STRIPE_SECRET_KEY in Render to show invoices here and in the client portal.</p>
-  {% elif not c.stripe_customer_id %}<p class="empty" style="font-size:14px">No Stripe customer linked yet.</p><form method="post" action="/admin/clients/{{ cid }}/stripe"><button type="submit">Create Stripe customer</button></form>
+  {% elif not c.stripe_customer_id %}<p class="empty" style="font-size:14px">No Stripe customer linked yet. New clients get one automatically; for this one, create it now.</p><form method="post" action="/admin/clients/{{ cid }}/stripe"><button type="submit">Create Stripe customer</button></form>
   {% elif inv_err %}<p class="err" style="font-size:14px">{{ inv_err }}</p>
   {% elif inv %}<ul class="files">{% for i in inv %}<li><span class="ic">INV</span><span class="nm">{% if i.url %}<a href="{{ i.url }}" target="_blank" rel="noopener">{{ i.number }}</a>{% else %}{{ i.number }}{% endif %}<small>{{ i.created }} · {{ i.amount }}</small></span><span class="pill{% if i.status != 'paid' %} off{% endif %}">{{ i.status }}</span></li>{% endfor %}</ul>
   {% else %}<p class="empty" style="font-size:14px">No invoices for {{ c.stripe_customer_id }} yet. Create them in Stripe and they appear here.</p>{% endif %}
