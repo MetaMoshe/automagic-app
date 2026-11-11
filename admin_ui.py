@@ -120,6 +120,7 @@ a.tile:hover{border-color:var(--cyan)}
 """
 
 _I = {
+    "pricing": '<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
     "inbox": '<path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5 5h14l2 8v6H3v-6z"/>',
     "chart": '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
     "leads": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/>',
@@ -132,6 +133,8 @@ _I = {
     "menu": '<path d="M4 7h16M4 12h16M4 17h16"/>',
     "lead": '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
     "upload": '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
+    "msg": '<path d="M4 5h16v11H9l-5 4z"/>',
+    "sent": '<path d="m3 11 18-8-8 18-2-8z"/>',
     "key": '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/>',
 }
 
@@ -146,8 +149,9 @@ MENU = [
     ("Workspace", "inbox", "Inbox", "/admin/inbox", "inbox"),
     ("Workspace", "chart", "Analytics", "/admin", None),
     ("Sales", "leads", "Lead CRM", "/admin/leads", "leads"),
-    ("Delivery", "clients", "Clients", "/admin/clients", None),
+    ("Delivery", "clients", "Clients", "/admin/clients", "clients"),
     ("Delivery", "consultants", "Consultants", "/admin/consultants", None),
+    ("Delivery", "pricing", "Pricing page", "/admin/pricing", None),
     ("Audience", "visitors", "Access and visitors", "/admin/visitors", None),
 ]
 

@@ -63,6 +63,9 @@ def init():
             "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)",
             f"CREATE TABLE IF NOT EXISTS consultants (id {pk}, created TEXT NOT NULL, updated TEXT, "
             + ", ".join(f"{k} TEXT" for k in CON_FIELDS) + ", photo TEXT)",
+            f"CREATE TABLE IF NOT EXISTS messages (id {pk}, client_id INTEGER NOT NULL, at TEXT NOT NULL, sender TEXT NOT NULL, "
+            "author TEXT, subject TEXT, body TEXT NOT NULL, read_client TEXT, read_admin TEXT)",
+            "CREATE INDEX IF NOT EXISTS messages_client ON messages (client_id)",
         ):
             S.q(sql)
         have = None if S.DATABASE_URL else [r[1] for r in S.q("PRAGMA table_info(clients)")]
@@ -113,6 +116,19 @@ def files_for(cid, kind=None):
     return [dict(zip(["id", "at", "kind", "category", "name", "size", "mime", "uploaded_by"], r)) for r in rows]
 
 
+MSG_KEYS = ["id", "at", "sender", "author", "subject", "body", "read_client", "read_admin"]
+
+
+def messages_for(cid):
+    rows = S.q("SELECT " + ", ".join(MSG_KEYS) + " FROM messages WHERE client_id = ? ORDER BY at, id", (cid,))
+    return [dict(zip(MSG_KEYS, r)) for r in rows]
+
+
+def add_message(cid, sender, author, subject, body):
+    S.q("INSERT INTO messages (client_id, at, sender, author, subject, body) VALUES (?, ?, ?, ?, ?, ?)",
+        (cid, S.now(), sender, author, subject, body))
+
+
 def legacy_consultant():
     c = dict(CONSULTANT_DEFAULT)
     for k, v in S.q("SELECT k, v FROM settings WHERE k LIKE 'consultant.%'"):
@@ -147,6 +163,64 @@ def set_setting(k, v):
         S.q("INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v", (k, v))
     else:
         S.q("INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)", (k, v))
+
+
+PRICING_DEFAULT = {
+    "label": "Engagement models & pricing",
+    "heading": "How we charge",
+    "intro": "A hybrid model, so you pay separately for leadership, ongoing expertise and what is built, each on its own terms. "
+             "Prices below are starting points; your exact fees are set out in your proposal.",
+    "principles": [
+        {"title": "You own everything we build.", "text": "Code, prompts, workflows and data stay yours."},
+        {"title": "No mark-up on external costs.", "text": "You pay providers directly, at cost."},
+        {"title": "Priced before work starts.", "text": "Each wave is agreed before it begins, with no surprises."},
+    ],
+    "items": [
+        {"title": "Discovery", "badge": "One-off · fixed", "prefix": "Starting from", "price": "$XXXX", "unit": "fixed",
+         "text": "A 3–4 day investigation, your AI Transformation Report and a leadership readout.",
+         "link_label": "See a real discovery report", "link_url": "/hunter/", "outline": False},
+        {"title": "Fractional Transformation Lead", "badge": "Monthly", "prefix": "Starting from", "price": "$XXXX", "unit": "a month",
+         "text": "A senior lead for your AI programme: roadmap, governance rules, vendors, adoption and monthly steering reports.",
+         "link_label": "", "link_url": "", "outline": False},
+        {"title": "Monthly consultancy", "badge": "Monthly", "prefix": "Starting from", "price": "$XXXX", "unit": "a month",
+         "text": "Architecture, delivery management, monitoring, fixes, minor changes and tuning.",
+         "link_label": "", "link_url": "", "outline": False},
+        {"title": "Build: fixed cost per item", "badge": "Fixed per item", "prefix": "", "price": "", "unit": "",
+         "text": "Design, build, integration, testing, onboarding and launch of each agent, tool or change, priced before its wave starts.",
+         "link_label": "", "link_url": "", "outline": False},
+        {"title": "External costs", "badge": "Paid by you · at cost", "prefix": "", "price": "", "unit": "",
+         "text": "Software licences, AI model usage, hosting, data providers and APIs, billed to you directly by each provider.",
+         "link_label": "", "link_url": "", "outline": True},
+    ],
+    "flow_title": "How it fits together",
+    "flow": [
+        {"title": "Discovery", "text": "Once, at the start"},
+        {"title": "Lead + consultancy", "text": "Monthly, while the programme runs"},
+        {"title": "Builds in waves", "text": "A fixed price per item, agreed per wave"},
+        {"title": "External costs", "text": "Direct to providers, as you use them"},
+    ],
+    "note": "Your exact fees are in your proposal.",
+}
+PRICING_SLOTS = {"principles": 4, "items": 8, "flow": 6}
+PRICING_ITEM_KEYS = ["title", "badge", "prefix", "price", "unit", "text", "link_label", "link_url"]
+
+
+def pricing_content():
+    """Pricing page content: the saved JSON from the admin CMS, or the defaults."""
+    r = S.q("SELECT v FROM settings WHERE k = 'pricing.page'", one=True)
+    data = json.loads(json.dumps(PRICING_DEFAULT))
+    if r and r[0]:
+        try:
+            saved = json.loads(r[0])
+            data.update({k: v for k, v in saved.items() if k in data})
+        except ValueError:
+            pass
+    return data
+
+
+def safe_link(u):
+    u = (u or "").strip()
+    return u if u.startswith(("https://", "http://", "mailto:")) or (u.startswith("/") and not u.startswith("//")) else ""
 
 
 # ---------------------------------------------------------------- request guards
@@ -375,6 +449,7 @@ def admin_client_delete(cid):
         os.rmdir(os.path.join(FILES_DIR, str(int(cid))))
     except OSError:
         pass
+    S.q("DELETE FROM messages WHERE client_id = ?", (cid,))
     S.q("DELETE FROM clients WHERE id = ?", (cid,))
     commit()
     return redirect("/admin/clients")
@@ -585,6 +660,70 @@ def admin_consultant(pid=None):
                                   is_default=bool(pid and first and first[0] == pid))
 
 
+@bp.route("/admin/clients/<int:cid>/inbox", methods=["GET", "POST"])
+def admin_client_inbox(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    if not c:
+        abort(404)
+    con = consultant_for(c)
+    if request.method == "POST":
+        body = S.clip(request.form.get("body"), 10000).strip()
+        if not body:
+            return redirect(f"/admin/clients/{cid}/inbox?err=1")
+        author = S.clip(request.form.get("author"), 200) or con["name"]
+        add_message(cid, "consultant", author, S.clip(request.form.get("subject"), 200), body)
+        commit()
+        return redirect(f"/admin/clients/{cid}/inbox?sent=1#latest")
+    msgs = messages_for(cid)
+    unread_ids = [m["id"] for m in msgs if m["sender"] == "client" and not m["read_admin"]]
+    if unread_ids:
+        S.q("UPDATE messages SET read_admin = ? WHERE client_id = ? AND sender = 'client' AND read_admin IS NULL", (S.now(), cid))
+        commit()
+    return render_template_string(ADMIN_INBOX, c=c, cid=cid, con=con, msgs=msgs, new_ids=unread_ids,
+                                  sent=request.args.get("sent"), err=request.args.get("err"))
+
+
+@bp.route("/admin/pricing", methods=["GET", "POST"])
+def admin_pricing():
+    r = admin_only()
+    if r:
+        return r
+    f = request.form
+    if request.method == "POST":
+        if f.get("reset") == "1":
+            S.q("DELETE FROM settings WHERE k = 'pricing.page'")
+            commit()
+            return redirect("/admin/pricing?saved=reset")
+        data = {k: S.clip(f.get(k), 1000 if k in ("intro", "note") else 200) for k in ("label", "heading", "intro", "flow_title", "note")}
+        data["label"] = data["label"] or PRICING_DEFAULT["label"]
+        data["heading"] = data["heading"] or PRICING_DEFAULT["heading"]
+        data["principles"] = [{"title": S.clip(f.get(f"pr{i}_title"), 200), "text": S.clip(f.get(f"pr{i}_text"), 400)}
+                              for i in range(PRICING_SLOTS["principles"])]
+        data["items"] = []
+        for i in range(PRICING_SLOTS["items"]):
+            it = {k: S.clip(f.get(f"it{i}_{k}"), 600 if k == "text" else 200) for k in PRICING_ITEM_KEYS}
+            it["link_url"] = safe_link(it["link_url"])
+            it["outline"] = f.get(f"it{i}_outline") == "1"
+            data["items"].append(it)
+        data["items"].sort(key=lambda x: not x["title"])  # filled cards first
+        data["flow"] = [{"title": S.clip(f.get(f"fl{i}_title"), 120), "text": S.clip(f.get(f"fl{i}_text"), 200)}
+                        for i in range(PRICING_SLOTS["flow"])]
+        set_setting("pricing.page", json.dumps(data))
+        commit()
+        return redirect("/admin/pricing?saved=1")
+    pr = pricing_content()
+    for k, n in PRICING_SLOTS.items():  # pad with empty slots so new cards can be added
+        blank = {"outline": False, **{x: "" for x in PRICING_ITEM_KEYS}} if k == "items" else {"title": "", "text": ""}
+        pr[k] = (pr[k] + [dict(blank) for _ in range(n)])[:n]
+    saved = request.args.get("saved")
+    note = "Saved. Clients see the changes straight away." if saved == "1" else "Reset to the default content." if saved == "reset" else ""
+    custom = bool(S.q("SELECT 1 FROM settings WHERE k = 'pricing.page'", one=True))
+    return render_template_string(ADMIN_PRICING, pr=pr, note=note, custom=custom)
+
+
 @bp.post("/admin/consultants/<int:pid>/delete")
 def admin_consultant_delete(pid):
     r = admin_only()
@@ -658,7 +797,8 @@ def portal():
         return redirect("/login/")
     inv, inv_err = invoices(c["stripe_customer_id"])
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
-    return render_template_string(PORTAL, c=c, first=first, phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
+    msgs = messages_for(c["id"])
+    return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), msgs=msgs, unread=sum(1 for m in msgs if m["sender"] == "consultant" and not m["read_client"]), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
                                   drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
@@ -704,6 +844,29 @@ def portal_billing():
         return redirect(s["url"])
     except Exception as e:
         return redirect("/portal/?note=" + urllib.parse.quote("Billing settings are not available right now: " + str(e)) + "#invoices")
+
+
+@bp.post("/portal/inbox")
+def portal_inbox_send():
+    c = current_client()
+    if not c:
+        abort(401)
+    body = S.clip(request.form.get("body"), 10000).strip()
+    if not body:
+        return redirect("/portal/?note=Write+a+message+first.#inbox")
+    add_message(c["id"], "client", c["contact_name"] or c["contact_email"], S.clip(request.form.get("subject"), 200), body)
+    commit()
+    return redirect("/portal/?note=Message+sent.#inbox")
+
+
+@bp.post("/portal/api/inbox/read")
+def portal_inbox_read():
+    c = current_client()
+    if not c:
+        abort(401)
+    S.q("UPDATE messages SET read_client = ? WHERE client_id = ? AND sender = 'consultant' AND read_client IS NULL", (S.now(), c["id"]))
+    commit()
+    return jsonify(ok=True)
 
 
 @bp.post("/portal/settings")
@@ -755,13 +918,19 @@ ADMIN_LIST = U.head("clients", "Clients") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Clients</h2><a class="btn" href="/admin/clients/new">Add client</a></div>
 <p class="mono" style="margin:10px 0 16px;text-transform:none;letter-spacing:0">{% for s in statuses %}{{ s }}: {{ counts[s] }}{% if not loop.last %} · {% endif %}{% endfor %}{% if not stripe %} · Stripe not connected (set STRIPE_SECRET_KEY){% endif %}</p>
 {% if rows %}<div class="tw"><table><thead><tr><th>Company</th><th>Contact</th><th>Status</th><th>Engagement</th><th>Consultant</th><th>Portal</th><th>Files</th><th>Last login (UTC)</th></tr></thead><tbody>
-{% for id, company, name, email, status, eng, portal, last, nfiles, con in rows %}<tr class="rowlink" onclick="location='/admin/clients/{{ id }}'"><td><a href="/admin/clients/{{ id }}">{{ company }}</a></td><td>{{ name or '' }}{% if email %}<br><span class="mono" style="text-transform:none;letter-spacing:0">{{ email }}</span>{% endif %}</td>
+{% for id, company, name, email, status, eng, portal, last, nfiles, con in rows %}<tr class="rowlink" onclick="location='/admin/clients/{{ id }}'"><td><a href="/admin/clients/{{ id }}">{{ company }}</a>{% set n = client_unread(id) %}{% if n %} <a class="pill" href="/admin/clients/{{ id }}/inbox" title="Unread messages">{{ n }} new message{{ '' if n == 1 else 's' }}</a>{% endif %}</td><td>{{ name or '' }}{% if email %}<br><span class="mono" style="text-transform:none;letter-spacing:0">{{ email }}</span>{% endif %}</td>
 <td><span class="pill{% if status != 'Active' %} off{% endif %}">{{ status or 'Lead' }}</span></td><td>{{ eng or '' }}</td><td>{{ con }}</td><td>{% if portal %}<span class="pill">On</span>{% else %}<span class="pill off">Off</span>{% endif %}</td><td>{{ nfiles }}</td><td>{{ (last or '')[:16]|replace('T',' ') }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No clients yet. Add your first client to give them a portal login and share documents.</div>{% endif %}
 </section>""" + ADMIN_FOOT
 
-ADMIN_CLIENT = U.head("clients", "Client") + """
+TABS_SRC = """{% macro ctabs(cid, active) %}<nav class="ctabs" aria-label="Client sections"><a href="/admin/clients/{{ cid }}"{% if active == 'profile' %} class="on" aria-current="page"{% endif %}>Profile and files</a><a href="/admin/clients/{{ cid }}/inbox"{% if active == 'inbox' %} class="on" aria-current="page"{% endif %}>Inbox{% set n = client_unread(cid) %}{% if n %} <span class="n">{{ n }}</span>{% endif %}</a></nav>
+<style>.ctabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 18px}.ctabs a{padding:10px 14px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
+.ctabs a:hover{color:var(--ink)}.ctabs a.on{color:var(--ink);border-bottom-color:var(--cyan)}.ctabs .n{font:600 11px var(--fm);background:var(--cyan);color:#062028;border-radius:999px;padding:2px 7px}</style>{% endmacro %}
+"""
+
+ADMIN_CLIENT = U.head("clients", "Client") + TABS_SRC + """
 <section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company or 'New client' }}</h2>
+{% if cid %}{{ ctabs(cid, 'profile') }}{% endif %}
 {% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
 {% if request.args.get('stripe_error') %}<p class="err" role="alert">Stripe: {{ request.args.get('stripe_error') }}</p>{% endif %}
 {% if new_pw %}<div class="card" style="margin-bottom:16px"><p class="mono">Client login</p><p>Login page: <a href="{{ login_url }}">{{ login_url }}</a><br>Email: <b>{{ c.contact_email }}</b></p><p class="secret">{{ new_pw }}</p></div>{% endif %}
@@ -855,6 +1024,80 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
 })();
 </script>""" + ADMIN_FOOT
 
+ADMIN_INBOX = U.head("clients", "Client inbox") + TABS_SRC + """
+<section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company }}</h2>
+{{ ctabs(cid, 'inbox') }}
+{% if sent %}<p class="ok" role="status">Message sent. {{ c.contact_name or 'The client' }} sees it in their portal Inbox.</p>{% elif err %}<p class="err" role="alert">Write a message first.</p>{% endif %}
+{% if not c.portal_enabled %}<p class="err" role="status">Portal access is off for this client, so they can't read messages yet. Turn it on under Profile and files.</p>{% endif %}
+<div class="mbox">
+ <div class="card thread"><p class="mono">Conversation with {{ c.contact_name or c.company }} · {{ msgs|length }} message{{ '' if msgs|length == 1 else 's' }}</p>
+  {% if msgs %}<ol class="msgs">{% for m in msgs %}<li class="m {{ m.sender }}{% if m.id in new_ids %} new{% endif %}"{% if loop.last %} id="latest"{% endif %}>
+   <div class="mh"><b>{{ m.author or ('Client' if m.sender == 'client' else 'Automagic') }}</b><span>{{ 'Client' if m.sender == 'client' else 'Sent to client' }} · {{ m.at[:16]|replace('T',' ') }} UTC</span>
+   {% if m.sender == 'consultant' %}<span class="rd">{{ 'Read ' ~ m.read_client[:16]|replace('T',' ') if m.read_client else 'Not read yet' }}</span>{% elif m.id in new_ids %}<span class="pill">New</span>{% endif %}</div>
+   {% if m.subject %}<p class="sj">{{ m.subject }}</p>{% endif %}<div class="bd">{{ m.body }}</div></li>{% endfor %}</ol>
+  {% else %}<p class="empty">No messages yet. Messages you send appear in the client's portal Inbox, and their replies show up here.</p>{% endif %}
+ </div>
+ <form class="card compose" method="post"><p class="mono">New message</p>
+  <div><label class="f" for="author">From</label><input type="text" id="author" name="author" value="{{ con.name }}"></div>
+  <div><label class="f" for="subject">Subject (optional)</label><input type="text" id="subject" name="subject" maxlength="200"></div>
+  <div><label class="f" for="body">Message</label><textarea id="body" name="body" required style="min-height:180px" placeholder="Hi {{ (c.contact_name or '').split(' ')[0] or 'there' }}, ..."></textarea></div>
+  <div class="row"><button type="submit">Send to client</button></div>
+  <p class="empty" style="font-size:13px;margin:0">Delivered to the client's portal Inbox. Every message is kept here as a record.</p>
+ </form>
+</div>
+<style>.mbox{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}@media (max-width:1000px){.mbox{grid-template-columns:minmax(0,1fr)}}
+.compose{display:grid;gap:12px;position:sticky;top:20px}.msgs{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:12px}
+.m{border:1px solid var(--line);border-radius:12px;padding:14px 16px;max-width:85%;min-width:0}.m.consultant{margin-left:auto;background:rgba(127,211,228,.06);border-color:rgba(127,211,228,.3)}
+.m.new{border-color:var(--cyan)}.mh{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-size:13px;color:var(--faint)}.mh b{color:var(--ink);font-size:14.5px}.mh .rd{margin-left:auto}
+.sj{margin:8px 0 0;font-weight:600}.bd{margin-top:6px;white-space:pre-wrap;word-wrap:break-word;line-height:1.55}
+@media (max-width:640px){.m{max-width:100%}}</style>
+</section>""" + ADMIN_FOOT
+
+ADMIN_PRICING = U.head("pricing", "Pricing page") + """
+<section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Pricing page</h2></div>
+<p class="empty" style="margin:10px 0 16px">Edits the Engagement &amp; pricing page every client sees in their portal. Leave a title blank to hide that card or step. To see the result, sign in to the portal as a client (for example the demo client).{% if not custom %} You're seeing the default content.{% endif %}</p>
+{% if note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+<form method="post" class="pcms">
+ <div class="card"><h3>Page header</h3><div class="grid">
+  <div><label class="f" for="label">Small label</label><input type="text" id="label" name="label" value="{{ pr.label }}"></div>
+  <div><label class="f" for="heading">Heading</label><input type="text" id="heading" name="heading" value="{{ pr.heading }}"></div>
+  <div class="full"><label class="f" for="intro">Intro</label><textarea id="intro" name="intro" rows="3">{{ pr.intro }}</textarea></div>
+ </div></div>
+ <div class="card"><h3>Promises</h3><p class="empty">Short ticked statements shown above the cards.</p><div class="grid">
+  {% for x in pr.principles %}<div><label class="f" for="pr{{ loop.index0 }}_title">Promise {{ loop.index }}: bold text</label><input type="text" id="pr{{ loop.index0 }}_title" name="pr{{ loop.index0 }}_title" value="{{ x.title }}"></div>
+  <div><label class="f" for="pr{{ loop.index0 }}_text">Promise {{ loop.index }}: detail</label><input type="text" id="pr{{ loop.index0 }}_text" name="pr{{ loop.index0 }}_text" value="{{ x.text }}"></div>{% endfor %}
+ </div></div>
+ <div class="card"><h3>Pricing cards</h3><p class="empty">Shown in this order. The price line shows only when Price is filled in, for example "Starting from" + "$4,500" + "a month".</p>
+  {% for x in pr['items'] %}{% set i = loop.index0 %}<fieldset class="pcard"><legend>Card {{ loop.index }}{% if not x.title %} (empty, hidden){% endif %}</legend><div class="grid">
+   <div><label class="f" for="it{{ i }}_title">Title</label><input type="text" id="it{{ i }}_title" name="it{{ i }}_title" value="{{ x.title }}"></div>
+   <div><label class="f" for="it{{ i }}_badge">Badge</label><input type="text" id="it{{ i }}_badge" name="it{{ i }}_badge" value="{{ x.badge }}" placeholder="Monthly"></div>
+   <div class="g3 full">
+    <div><label class="f" for="it{{ i }}_prefix">Before price</label><input type="text" id="it{{ i }}_prefix" name="it{{ i }}_prefix" value="{{ x.prefix }}" placeholder="Starting from"></div>
+    <div><label class="f" for="it{{ i }}_price">Price</label><input type="text" id="it{{ i }}_price" name="it{{ i }}_price" value="{{ x.price }}" placeholder="$4,500"></div>
+    <div><label class="f" for="it{{ i }}_unit">After price</label><input type="text" id="it{{ i }}_unit" name="it{{ i }}_unit" value="{{ x.unit }}" placeholder="a month"></div>
+   </div>
+   <div class="full"><label class="f" for="it{{ i }}_text">Description</label><textarea id="it{{ i }}_text" name="it{{ i }}_text" rows="2">{{ x.text }}</textarea></div>
+   <div><label class="f" for="it{{ i }}_link_label">Link text (optional)</label><input type="text" id="it{{ i }}_link_label" name="it{{ i }}_link_label" value="{{ x.link_label }}"></div>
+   <div><label class="f" for="it{{ i }}_link_url">Link URL</label><input type="text" id="it{{ i }}_link_url" name="it{{ i }}_link_url" value="{{ x.link_url }}" placeholder="/hunter/ or https://..."></div>
+   <label class="chk full"><input type="checkbox" name="it{{ i }}_outline" value="1"{% if x.outline %} checked{% endif %}> Dashed outline (for costs the client pays directly)</label>
+  </div></fieldset>{% endfor %}
+ </div>
+ <div class="card"><h3>How it fits together</h3><div class="grid">
+  <div class="full"><label class="f" for="flow_title">Section label</label><input type="text" id="flow_title" name="flow_title" value="{{ pr.flow_title }}"></div>
+  {% for x in pr.flow %}<div><label class="f" for="fl{{ loop.index0 }}_title">Step {{ loop.index }}: title</label><input type="text" id="fl{{ loop.index0 }}_title" name="fl{{ loop.index0 }}_title" value="{{ x.title }}"></div>
+  <div><label class="f" for="fl{{ loop.index0 }}_text">Step {{ loop.index }}: detail</label><input type="text" id="fl{{ loop.index0 }}_text" name="fl{{ loop.index0 }}_text" value="{{ x.text }}"></div>{% endfor %}
+  <div class="full"><label class="f" for="note">Closing note</label><input type="text" id="note" name="note" value="{{ pr.note }}"><small class="empty">A link to Project docs (when the client has any) and "Ask [consultant]" are added after it automatically.</small></div>
+ </div></div>
+ <div class="row savebar"><button type="submit">Save pricing page</button></div>
+</form>
+{% if custom %}<form method="post" class="card" style="margin-top:18px"><input type="hidden" name="reset" value="1"><p class="mono">Reset</p><p class="empty" style="font-size:14px;margin:4px 0 10px">Go back to the default content. Your edits will be lost.</p><button class="danger" type="submit" onclick="return confirm('Reset the pricing page to the default content?')">Reset to default</button></form>{% endif %}
+<style>.pcms{display:grid;gap:18px;max-width:900px}.pcms h3{margin:0 0 6px}.pcms p.empty{margin:0 0 14px;font-size:14px}
+.pcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px 16px;margin:0 0 14px;min-width:0}.pcard legend{padding:0 6px;font-weight:600}
+.g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}@media (max-width:640px){.g3{grid-template-columns:minmax(0,1fr)}}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px}.chk input{width:auto}
+.savebar{position:sticky;bottom:0;padding:12px 0;background:var(--bg)}</style>
+</section>""" + ADMIN_FOOT
+
 ADMIN_CONSULTANTS = U.head("consultants", "Consultants") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Consultants</h2><a class="btn" href="/admin/consultants/new">Add consultant</a></div>
 <p class="empty" style="margin:10px 0 16px">Each client sees their assigned consultant under Your Consultant. Clients with no consultant assigned see the default, the first one listed.</p>
@@ -907,6 +1150,14 @@ def icon(name, size=18):
 
 
 S.app.jinja_env.globals["icon"] = icon
+
+
+def client_unread(cid):
+    """Messages from the client the team hasn't opened yet."""
+    return S.q("SELECT COUNT(*) FROM messages WHERE client_id = ? AND sender = 'client' AND read_admin IS NULL", (cid,), one=True)[0]
+
+
+S.app.jinja_env.globals["client_unread"] = client_unread
 
 PORTAL = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Client Portal · Automagic</title><meta name="robots" content="noindex">
@@ -980,9 +1231,22 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .intro h3{font-size:clamp(20px,2.2vw,24px);margin:10px 0 8px}.intro>p{margin:0;color:var(--muted);line-height:1.6;max-width:62ch}
 .isteps{margin:16px 0 0;padding-left:20px;display:grid;gap:8px;color:var(--muted);line-height:1.55}.isteps b{color:var(--ink);font-weight:600}
 .iact{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
-.cnote{border-color:rgba(127,211,228,.35);background:linear-gradient(160deg,rgba(127,211,228,.08),var(--surface) 60%)}
-.cnote p{margin:10px 0 0;white-space:pre-line;font-size:16px;line-height:1.6}
-.cnote small{display:block;margin-top:10px;color:var(--faint);font-size:13px}
+.side .badge{margin-left:auto;font:600 11px var(--fm);background:var(--cyan);color:var(--on-cyan);border-radius:999px;padding:2px 8px}
+.ov-side{display:grid;gap:16px;min-width:0}.mnew{display:flex;gap:12px;align-items:flex-start;text-decoration:none;color:var(--muted);border-color:rgba(127,211,228,.45);font-size:14px;line-height:1.5;padding:16px 18px}.mnew svg{flex:none;color:var(--cyan);margin-top:2px}.mnew b{color:var(--ink)}
+.ibx{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}@media (max-width:1000px){.ibx{grid-template-columns:minmax(0,1fr)}}
+.msgs{list-style:none;margin:0;padding:0;display:grid;gap:12px}.m{border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;max-width:88%}
+.m.me{margin-left:auto;background:rgba(127,211,228,.06);border-color:rgba(127,211,228,.3)}.m.new{border-color:var(--cyan);box-shadow:0 0 0 1px rgba(127,211,228,.25)}
+.mh{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:13px;color:var(--faint)}.mh b{color:var(--ink);font-size:15px}
+.m .sj{margin:8px 0 0;font-weight:600}.m .bd{margin-top:6px;white-space:pre-wrap;word-wrap:break-word;line-height:1.6;color:var(--ink)}
+@media (max-width:640px){.m{max-width:100%}}
+.f textarea{width:100%;font:15px var(--fb);color:var(--ink);background:var(--bg);border:1.5px solid var(--line-2);border-radius:9px;padding:11px 12px;resize:vertical}.f textarea:focus{outline:none;border-color:var(--cyan)}
+.cnote{position:relative;background:#F7FAFC;color:#14202E;border:0;border-radius:14px;padding:22px 22px 18px;box-shadow:0 12px 32px rgba(0,0,0,.35);transform:rotate(-.4deg)}
+.cnote::before{content:"";position:absolute;top:-9px;left:50%;width:72px;height:18px;margin-left:-36px;background:rgba(127,211,228,.55);border-radius:3px;transform:rotate(2deg)}
+.cnote .nh{display:flex;align-items:center;gap:10px}
+.cnote .av{flex:none;width:34px;height:34px;border-radius:50%;object-fit:cover;background:#DCEFF4;color:#1B3B47;display:grid;place-items:center;font:600 15px var(--fd)}
+.cnote .nh b{display:block;font:600 15px var(--fd);color:#0A1018}.cnote .nh div span{display:block;font:500 10.5px var(--fm);letter-spacing:.1em;text-transform:uppercase;color:#5B6B7E}
+.cnote p{margin:14px 0 0;white-space:pre-line;font-size:15px;line-height:1.65;color:#22303F}
+.cnote a{display:inline-block;margin-top:14px;font-size:13.5px;font-weight:600;color:#1C6E80;text-decoration:none}.cnote a:hover{text-decoration:underline}
 .card.panel{padding:0;overflow:hidden}
 .panel .hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
 .panel .hd h3{font-size:17px;font-weight:600;display:flex;align-items:center;gap:10px}.panel .hd h3 svg{color:var(--cyan)}
@@ -1047,16 +1311,16 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 .f input{width:100%;font:15px var(--fb);color:var(--ink);background:var(--bg);border:1.5px solid var(--line-2);border-radius:9px;padding:11px 12px}
 .f input:focus{outline:none;border-color:var(--cyan)}.f input[readonly]{color:var(--muted);border-style:dashed}
 .note{margin:0 0 18px;padding:12px 16px;border:1px solid rgba(127,211,228,.35);border-radius:10px;background:rgba(127,211,228,.07)}
-.prin{list-style:none;margin:0 0 22px;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.prin{list-style:none;margin:0 0 22px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .prin li{display:flex;gap:10px;align-items:flex-start;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);font-size:14px;color:var(--muted);line-height:1.5}
 .prin li svg{flex:none;color:var(--ok);margin-top:2px}.prin b{color:var(--ink);font-weight:600}
 .pm{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .pc{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;display:grid;align-content:start;gap:10px}
-.pc.ext{background:transparent;border-style:dashed;grid-column:1/-1}
+.pc.ext{background:transparent;border-style:dashed}.pc:last-child:nth-child(odd){grid-column:1/-1}
 .pt{display:flex;justify-content:space-between;align-items:center;gap:10px}.pn{font:500 12px var(--fm);color:var(--faint);letter-spacing:.1em}
 .pu{font:500 11px var(--fm);letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:999px;border:1px solid rgba(127,211,228,.4);color:var(--cyan);background:rgba(127,211,228,.07)}
 .pc h3{font-size:19px;font-weight:600}.pc p.pp{color:var(--faint);font-size:13.5px}.pp b{font:600 22px var(--fd);color:var(--ink);margin:0 4px}.pp small{font-size:13.5px}.pc p{margin:0;color:var(--muted);line-height:1.55;font-size:14.5px}.pl{font-size:14px;text-decoration:none}
-.pflow{margin-top:14px}.pflow ol{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;counter-reset:f}
+.pflow{margin-top:14px}.pflow ol{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;counter-reset:f}
 .pflow li{counter-increment:f;display:grid;gap:4px;padding:14px;border-radius:10px;background:var(--bg-2);border:1px solid var(--line)}
 .pflow li::before{content:counter(f);font:500 12px var(--fm);color:var(--cyan)}.pflow li b{font:600 15px var(--fd)}.pflow li span{color:var(--muted);font-size:13.5px}
 .pflow>p{margin:16px 0 0;color:var(--muted);font-size:14.5px}
@@ -1078,6 +1342,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 <div class="shell">
 <nav class="side" aria-label="Portal">
  <a href="#home" data-v="home">{{ icon('home')|safe }}Overview</a>
+ <a href="#inbox" data-v="inbox">{{ icon('mail')|safe }}Inbox{% if unread %}<span class="badge" aria-label="{{ unread }} unread">{{ unread }}</span>{% endif %}</a>
  <a href="#consultant" data-v="consultant">{{ icon('user')|safe }}Your Consultant</a>
  <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Project docs</a>
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
@@ -1123,7 +1388,6 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
     </ol>
     <div class="iact"><a class="btn btn-p" href="/portal/how-we-work">How we work →</a><a class="btn btn-g" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></div>
    </div>{% endif %}
-   {% if c.consultant_note %}<div class="card cnote"><span class="label">Note from {{ con.name.split(' ')[0] }}</span><p>{{ c.consultant_note }}</p></div>{% endif %}
    <div class="card panel"><div class="hd"><h3>{{ icon('doc')|safe }}Project docs</h3>{% if legal %}<a href="#legal">View all {{ legal|length }}</a>{% endif %}</div>
     {% if legal %}<ul class="rows">{% for f in legal[:3] %}<li><span class="mini">{{ f.name|ext }}</span><span class="tx"><b>{{ f.name }}</b><span>{{ f.category or 'Document' }} · shared {{ f.at[:10] }}</span></span><a class="btn btn-g btn-s" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener">Open</a></li>{% endfor %}</ul>
     {% else %}<p class="none">No documents yet. Proposals and agreements will appear here when we share them.</p>{% endif %}</div>
@@ -1142,7 +1406,25 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
    <div class="cc-l">{% if con.email %}<a href="mailto:{{ con.email }}" aria-label="Email {{ con.name }}" title="{{ con.email }}">{{ icon('mail')|safe }}</a>{% endif %}{% if con.phone %}<a href="tel:{{ con.phone|replace(' ','') }}" aria-label="Call {{ con.name }}" title="{{ con.phone }}">{{ icon('phone')|safe }}</a>{% endif %}{% if con.linkedin %}<a href="{{ con.linkedin }}" target="_blank" rel="noopener" aria-label="{{ con.name }} on LinkedIn" title="LinkedIn">{{ icon('in')|safe }}</a>{% endif %}</div>
    <a class="btn btn-p" href="{{ con.cal_url }}" target="_blank" rel="noopener">{{ icon('cal')|safe }}Book a meeting</a>
    <a class="more" href="#consultant">About {{ con.name.split(' ')[0] }} →</a>
-  </div></aside>
+  </div>
+  {% if unread %}<a class="card mnew" href="#inbox">{{ icon('mail')|safe }}<span><b>{{ unread }} new message{{ '' if unread == 1 else 's' }}</b> from {{ con.name.split(' ')[0] }}. Open your inbox →</span></a>{% endif %}
+  {% if c.consultant_note %}<div class="cnote" role="note" aria-label="Note from {{ con.name }}"><div class="nh">{% if con.photo %}<img class="av" src="/consultant-photo/{{ con.id }}" alt="" width="34" height="34">{% else %}<span class="av" aria-hidden="true">{{ con.name[:1] }}</span>{% endif %}<div><b>Note from {{ con.name.split(' ')[0] }}</b><span>Your consultant</span></div></div>
+   <p>{{ c.consultant_note }}</p><a href="#inbox">Reply to {{ con.name.split(' ')[0] }} →</a></div>{% endif %}
+  </aside>
+ </div>
+</section>
+
+<section class="view" id="v-inbox" hidden>
+ <div class="vh"><span class="label">Inbox</span><h2>Messages from your team</h2><p>Updates and requests from {{ con.name.split(' ')[0] }}. Reply here and it goes straight to us.</p></div>
+ <div class="ibx">
+  <div class="card ithread">{% if msgs %}<ol class="msgs">{% for m in msgs|reverse %}<li class="m {{ 'me' if m.sender == 'client' else 'them' }}{% if m.sender == 'consultant' and not m.read_client %} new{% endif %}">
+    <div class="mh"><b>{{ 'You' if m.sender == 'client' else (m.author or con.name) }}</b><span>{{ m.at[:16]|replace('T',' ') }} UTC</span>{% if m.sender == 'consultant' and not m.read_client %}<span class="chip ok">New</span>{% endif %}</div>
+    {% if m.subject %}<p class="sj">{{ m.subject }}</p>{% endif %}<div class="bd">{{ m.body }}</div></li>{% endfor %}</ol>
+   {% else %}<div class="empty">No messages yet. When {{ con.name.split(' ')[0] }} sends you an update, it appears here.</div>{% endif %}</div>
+  <form class="card fg" method="post" action="/portal/inbox"><h3 style="font-size:19px">Write to {{ con.name.split(' ')[0] }}</h3>
+   <div class="f"><label for="m-subj">Subject (optional)</label><input id="m-subj" name="subject" maxlength="200"></div>
+   <div class="f"><label for="m-body">Message</label><textarea id="m-body" name="body" required rows="6"></textarea></div>
+   <div><button class="btn btn-p" type="submit">{{ icon('mail')|safe }}Send message</button></div></form>
  </div>
 </section>
 
@@ -1180,22 +1462,19 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </section>
 
 <section class="view" id="v-pricing" hidden>
- <div class="vh"><span class="label">Engagement models & pricing</span><h2>How we charge</h2><p>A hybrid model, so you pay separately for leadership, ongoing expertise and what is built, each on its own terms. Prices below are starting points; your exact fees are set out in your proposal.</p></div>
- <ul class="prin">
-  <li>{{ icon('check')|safe }}<span><b>You own everything we build.</b> Code, prompts, workflows and data stay yours.</span></li>
-  <li>{{ icon('check')|safe }}<span><b>No mark-up on external costs.</b> You pay providers directly, at cost.</span></li>
-  <li>{{ icon('check')|safe }}<span><b>Priced before work starts.</b> Each wave is agreed before it begins, with no surprises.</span></li>
- </ul>
- <div class="pm">
-  <article class="pc"><div class="pt"><span class="pn">01</span><span class="pu">One-off · fixed</span></div><h3>Discovery</h3><p class="pp">Starting from <b>$XXXX</b> <small>fixed</small></p><p>A 3–4 day investigation, your AI Transformation Report and a leadership readout.</p><a class="pl" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></article>
-  <article class="pc"><div class="pt"><span class="pn">02</span><span class="pu">Monthly</span></div><h3>Fractional Transformation Lead</h3><p class="pp">Starting from <b>$XXXX</b> <small>a month</small></p><p>A senior lead for your AI programme: roadmap, governance rules, vendors, adoption and monthly steering reports.</p></article>
-  <article class="pc"><div class="pt"><span class="pn">03</span><span class="pu">Monthly</span></div><h3>Monthly consultancy</h3><p class="pp">Starting from <b>$XXXX</b> <small>a month</small></p><p>Architecture, delivery management, monitoring, fixes, minor changes and tuning.</p></article>
-  <article class="pc"><div class="pt"><span class="pn">04</span><span class="pu">Fixed per item</span></div><h3>Build: fixed cost per item</h3><p>Design, build, integration, testing, onboarding and launch of each agent, tool or change, priced before its wave starts.</p></article>
-  <article class="pc ext"><div class="pt"><span class="pn">05</span><span class="pu">Paid by you · at cost</span></div><h3>External costs</h3><p>Software licences, AI model usage, hosting, data providers and APIs, billed to you directly by each provider.</p></article>
+ <div class="vh"><span class="label">{{ pr.label }}</span><h2>{{ pr.heading }}</h2>{% if pr.intro %}<p>{{ pr.intro }}</p>{% endif %}</div>
+ {% set prin = pr.principles|selectattr('title')|list %}{% if prin %}<ul class="prin">
+  {% for x in prin %}<li>{{ icon('check')|safe }}<span><b>{{ x.title }}</b> {{ x.text }}</span></li>{% endfor %}
+ </ul>{% endif %}
+ {% set items = pr['items']|selectattr('title')|list %}<div class="pm">
+  {% for x in items %}<article class="pc{% if x.outline %} ext{% endif %}"><div class="pt"><span class="pn">{{ '%02d' % loop.index }}</span>{% if x.badge %}<span class="pu">{{ x.badge }}</span>{% endif %}</div><h3>{{ x.title }}</h3>
+   {% if x.price %}<p class="pp">{% if x.prefix %}{{ x.prefix }} {% endif %}<b>{{ x.price }}</b>{% if x.unit %} <small>{{ x.unit }}</small>{% endif %}</p>{% endif %}
+   {% if x.text %}<p>{{ x.text }}</p>{% endif %}
+   {% if x.link_url and x.link_label %}<a class="pl" href="{{ x.link_url }}" target="_blank" rel="noopener">{{ x.link_label }} ↗</a>{% endif %}</article>{% endfor %}
  </div>
- <div class="card pflow"><span class="label">How it fits together</span>
-  <ol><li><b>Discovery</b><span>Once, at the start</span></li><li><b>Lead + consultancy</b><span>Monthly, while the programme runs</span></li><li><b>Builds in waves</b><span>A fixed price per item, agreed per wave</span></li><li><b>External costs</b><span>Direct to providers, as you use them</span></li></ol>
-  <p>Your exact fees are in your proposal{% if legal %} under <a href="#legal">Project docs</a>{% endif %}. Questions? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">Ask {{ con.name.split(' ')[0] }}</a>.</p>
+ {% set flow = pr.flow|selectattr('title')|list %}<div class="card pflow">{% if flow %}<span class="label">{{ pr.flow_title }}</span>
+  <ol>{% for x in flow %}<li><b>{{ x.title }}</b><span>{{ x.text }}</span></li>{% endfor %}</ol>{% endif %}
+  <p>{% if pr.note %}{{ pr.note }} {% endif %}{% if legal %}See <a href="#legal">Project docs</a>. {% endif %}Questions? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">Ask {{ con.name.split(' ')[0] }}</a>.</p>
  </div>
 </section>
 
@@ -1261,12 +1540,14 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </div></footer>
 <script>
 (function(){
-  var views=['home','consultant','legal','invoices','drive','pricing','roi','settings'];
+  var views=['home','inbox','consultant','legal','invoices','drive','pricing','roi','settings'];
   function show(){var v=(location.hash||'#home').slice(1); if(views.indexOf(v)<0) v='home';
     views.forEach(function(n){document.getElementById('v-'+n).hidden=n!==v});
     document.querySelectorAll('.side a').forEach(function(a){a.classList.toggle('on',a.dataset.v===v); if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current')});
     window.scrollTo(0,0);}
-  window.addEventListener('hashchange',show); show();
+  var unread={{ unread|tojson }};
+  function markRead(){ if(unread && location.hash==='#inbox'){ unread=0; fetch('/portal/api/inbox/read',{method:'POST',credentials:'same-origin'}).then(function(){ document.querySelectorAll('.side .badge').forEach(function(b){b.remove()}); }); } }
+  window.addEventListener('hashchange',function(){show();markRead()}); show(); markRead();
   var rf=document.getElementById('roi-f');
   if(rf){ var WK=46, fmt=function(n){return (n<0?'-$':'$')+Math.round(Math.abs(n)).toLocaleString('en-US')};
     var g=function(id){var v=parseFloat(document.getElementById(id).value);return isFinite(v)&&v>0?v:0};

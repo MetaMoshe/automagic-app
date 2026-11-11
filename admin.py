@@ -1,6 +1,6 @@
 """Admin pages that sit in the left menu next to Clients and Consultants (portal.py):
 
-  /admin/inbox      everything new: Book a Call requests, client drive uploads, portfolio sign-ups
+  /admin/inbox      everything new: client messages, Book a Call requests, client drive uploads, portfolio sign-ups
   /admin            analytics (traffic, pages, referrers, places)
   /admin/leads      Lead CRM: Book a Call leads with a pipeline status, private notes, convert to client
   /admin/visitors   portfolio access emails and visitor activity by email
@@ -108,9 +108,11 @@ def admin_nav():
     t = seen()
     unread = (S.q("SELECT COUNT(*) FROM leads WHERE at > ?", (t,), one=True)[0]
               + S.q("SELECT COUNT(*) FROM access WHERE at > ?", (t,), one=True)[0]
-              + S.q("SELECT COUNT(*) FROM client_files WHERE uploaded_by = 'client' AND at > ?", (t,), one=True)[0])
+              + S.q("SELECT COUNT(*) FROM client_files WHERE uploaded_by = 'client' AND at > ?", (t,), one=True)[0]
+              + S.q("SELECT COUNT(*) FROM messages WHERE sender = 'client' AND at > ? AND read_admin IS NULL", (t,), one=True)[0])
     new_leads = S.q("SELECT COUNT(*) FROM leads WHERE COALESCE(status, 'New') = 'New'", one=True)[0]
-    return {"admin_nav": {"inbox": unread, "leads": new_leads}}
+    msgs = S.q("SELECT COUNT(*) FROM messages WHERE sender = 'client' AND read_admin IS NULL", one=True)[0]
+    return {"admin_nav": {"inbox": unread, "leads": new_leads, "clients": msgs}}
 
 
 def guard():
@@ -118,7 +120,7 @@ def guard():
 
 
 # ---------------------------------------------------------------- inbox
-INBOX_TYPES = {"leads": "Book a Call", "uploads": "Client uploads", "access": "Portfolio sign-ups"}
+INBOX_TYPES = {"messages": "Client messages", "leads": "Book a Call", "uploads": "Client uploads", "access": "Portfolio sign-ups"}
 
 
 @bp.get("/admin/inbox")
@@ -132,6 +134,14 @@ def inbox():
         for lid, at, name, company, eng, notes in S.q("SELECT id, at, name, company, engagement, notes FROM leads ORDER BY at DESC LIMIT 200"):
             items.append({"at": at, "icon": "lead", "href": f"/admin/leads/{lid}", "title": f"Book a Call request from {name}" + (f", {company}" if company else ""),
                           "sub": " · ".join(x for x in (eng, (notes or "").replace("\n", " ")[:140]) if x) or "No message"})
+    if kind in ("", "messages"):
+        for cid, at, sender, author, subj, body, read, company in S.q(
+                "SELECT m.client_id, m.at, m.sender, m.author, m.subject, m.body, m.read_admin, c.company FROM messages m "
+                "JOIN clients c ON c.id = m.client_id ORDER BY m.at DESC LIMIT 200"):
+            mine = sender == "consultant"
+            title = (f"{author or 'You'} messaged {company}" if mine else f"Message from {author}, {company}" if author else f"Message from {company}")
+            items.append({"at": at, "icon": "sent" if mine else "msg", "href": f"/admin/clients/{cid}/inbox#latest", "title": title,
+                          "sub": " · ".join(x for x in (subj, (body or "").replace("\n", " ")[:140]) if x), "fresh": not mine and not read})
     if kind in ("", "uploads"):
         for cid, at, fname, company in S.q("SELECT f.client_id, f.at, f.name, c.company FROM client_files f JOIN clients c ON c.id = f.client_id "
                                            "WHERE f.uploaded_by = 'client' ORDER BY f.at DESC LIMIT 200"):
@@ -142,8 +152,34 @@ def inbox():
                           "sub": " · ".join(x for x in (page and f"Asked for {page}", ", ".join(y for y in (city, country) if y)) if x) or "Portfolio access"})
     items.sort(key=lambda i: i["at"], reverse=True)
     for i in items:
-        i["unread"] = i["at"] > t
+        i["unread"] = i.get("fresh", True) and i["at"] > t
     return render_template_string(INBOX, items=items[:200], kind=kind, types=INBOX_TYPES, note=request.args.get("note", ""))
+
+
+@bp.route("/admin/inbox/compose", methods=["GET", "POST"])
+def inbox_compose():
+    r = guard()
+    if r:
+        if request.method == "POST":
+            abort(401)
+        return r
+    clients = [{"id": i, "company": co, "name": n, "portal": bool(p), "con": P.consultant_for(P.client_row(i))["name"]}
+               for i, co, n, p in S.q("SELECT id, company, contact_name, portal_enabled FROM clients ORDER BY company")]
+    f, err = request.form, ""
+    sel = request.values.get("client_id", type=int)
+    if request.method == "POST":
+        body = S.clip(f.get("body"), 10000).strip()
+        c = P.client_row(sel) if sel else None
+        if not c:
+            err = "Choose a client."
+        elif not body:
+            err = "Write a message first."
+        else:
+            author = S.clip(f.get("author"), 200) or P.consultant_for(c)["name"]
+            P.add_message(sel, "consultant", author, S.clip(f.get("subject"), 200), body)
+            P.commit()
+            return redirect(f"/admin/clients/{sel}/inbox?sent=1#latest")
+    return render_template_string(COMPOSE, clients=clients, sel=sel, err=err, f=f)
 
 
 @bp.post("/admin/inbox/read")
@@ -329,12 +365,30 @@ def visitors():
 FOOT = U.FOOT
 
 INBOX = U.head("inbox", "Inbox") + """
-<div class="ph"><div><h2>Inbox</h2><p>Book a Call requests, files your clients upload and portfolio sign-ups, newest first.</p></div>
-{% if admin_nav.inbox %}<form method="post" action="/admin/inbox/read"><button class="ghost" type="submit">Mark all as read</button></form>{% endif %}</div>
+<div class="ph"><div><h2>Inbox</h2><p>Client messages, Book a Call requests, files your clients upload and portfolio sign-ups, newest first.</p></div>
+<div class="row">{% if admin_nav.inbox %}<form method="post" action="/admin/inbox/read"><button class="ghost" type="submit">Mark all as read</button></form>{% endif %}<a class="btn" href="/admin/inbox/compose">""" + U.ico("sent", 16) + """ Compose</a></div></div>
 <nav class="chips" aria-label="Filter"><a href="/admin/inbox" class="{{ 'on' if not kind }}">All</a>{% for k, label in types.items() %}<a href="/admin/inbox?type={{ k }}" class="{{ 'on' if kind == k }}">{{ label }}</a>{% endfor %}</nav>
 {% if items %}<ul class="feed">{% for i in items %}<li class="{{ 'un' if i.unread }}"><a class="fi" href="{{ i.href }}"><span class="ico">{{ ico(i.icon)|safe }}</span><span class="tx"><b>{{ i.title }}</b><span>{{ i.sub }}</span></span><time datetime="{{ i.at }}">{{ i.at[:16]|replace('T',' ') }}</time></a></li>{% endfor %}</ul>
-{% else %}<div class="card empty">Nothing here yet. New Book a Call requests, client uploads and portfolio sign-ups will appear here.</div>{% endif %}
+{% else %}<div class="card empty">Nothing here yet. New client messages, Book a Call requests, client uploads and portfolio sign-ups will appear here.</div>{% endif %}
 <p class="mono" style="margin-top:14px;text-transform:none;letter-spacing:0">Times are UTC.</p>
+""" + FOOT
+
+COMPOSE = U.head("inbox", "New message") + """
+<p><a href="/admin/inbox">← Inbox</a></p>
+<div class="ph"><div><h2>New message</h2><p>Sent to the client's portal Inbox and kept in their client record.</p></div></div>
+{% if err %}<p class="err" role="alert">{{ err }}</p>{% endif %}
+{% if clients %}<form class="card" method="post" style="max-width:760px;display:grid;gap:14px">
+ <div><label class="f" for="client_id">To</label><select id="client_id" name="client_id" required><option value="">Choose a client…</option>
+  {% for c in clients %}<option value="{{ c.id }}" data-con="{{ c.con }}"{% if sel == c.id %} selected{% endif %}>{{ c.company }}{% if c.name %} · {{ c.name }}{% endif %}{% if not c.portal %} (portal off){% endif %}</option>{% endfor %}</select></div>
+ <div><label class="f" for="author">From</label><input type="text" id="author" name="author" value="{{ f.get('author', '') }}" placeholder="The client's consultant"></div>
+ <div><label class="f" for="subject">Subject (optional)</label><input type="text" id="subject" name="subject" maxlength="200" value="{{ f.get('subject', '') }}"></div>
+ <div><label class="f" for="body">Message</label><textarea id="body" name="body" required style="min-height:220px">{{ f.get('body', '') }}</textarea></div>
+ <div class="row"><button type="submit">Send to client</button><a class="btn ghost" href="/admin/inbox">Cancel</a></div>
+</form>
+<script>(function(){var s=document.getElementById('client_id'),a=document.getElementById('author');
+function fill(){var o=s.options[s.selectedIndex];if(o&&o.dataset.con&&(!a.value||a.dataset.auto==='1')){a.value=o.dataset.con;a.dataset.auto='1'}}
+a.addEventListener('input',function(){a.dataset.auto='0'});s.addEventListener('change',fill);fill();})();</script>
+{% else %}<div class="card empty">No clients yet. Add a client first, then you can message them.</div>{% endif %}
 """ + FOOT
 
 ANALYTICS = U.head("chart", "Analytics") + """
