@@ -1054,7 +1054,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 .pc.ext{background:transparent;border-style:dashed;grid-column:1/-1}
 .pt{display:flex;justify-content:space-between;align-items:center;gap:10px}.pn{font:500 12px var(--fm);color:var(--faint);letter-spacing:.1em}
 .pu{font:500 11px var(--fm);letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:999px;border:1px solid rgba(127,211,228,.4);color:var(--cyan);background:rgba(127,211,228,.07)}
-.pc h3{font-size:19px;font-weight:600}.pc p{margin:0;color:var(--muted);line-height:1.55;font-size:14.5px}.pl{font-size:14px;text-decoration:none}
+.pc h3{font-size:19px;font-weight:600}.pc p.pp{color:var(--faint);font-size:13.5px}.pp b{font:600 22px var(--fd);color:var(--ink);margin:0 4px}.pp small{font-size:13.5px}.pc p{margin:0;color:var(--muted);line-height:1.55;font-size:14.5px}.pl{font-size:14px;text-decoration:none}
 .pflow{margin-top:14px}.pflow ol{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;counter-reset:f}
 .pflow li{counter-increment:f;display:grid;gap:4px;padding:14px;border-radius:10px;background:var(--bg-2);border:1px solid var(--line)}
 .pflow li::before{content:counter(f);font:500 12px var(--fm);color:var(--cyan)}.pflow li b{font:600 15px var(--fd)}.pflow li span{color:var(--muted);font-size:13.5px}
@@ -1179,22 +1179,22 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </section>
 
 <section class="view" id="v-pricing" hidden>
- <div class="vh"><span class="label">Engagement models & pricing</span><h2>How we charge</h2><p>A hybrid model, so you pay separately for leadership, ongoing expertise and what is built, each on its own terms. Your exact fees are set out in your proposal.</p></div>
+ <div class="vh"><span class="label">Engagement models & pricing</span><h2>How we charge</h2><p>A hybrid model, so you pay separately for leadership, ongoing expertise and what is built, each on its own terms. Prices below are starting points; your exact fees are set out in your proposal.</p></div>
  <ul class="prin">
   <li>{{ icon('check')|safe }}<span><b>You own everything we build.</b> Code, prompts, workflows and data stay yours.</span></li>
   <li>{{ icon('check')|safe }}<span><b>No mark-up on external costs.</b> You pay providers directly, at cost.</span></li>
   <li>{{ icon('check')|safe }}<span><b>Priced before work starts.</b> Each wave is agreed before it begins, with no surprises.</span></li>
  </ul>
  <div class="pm">
-  <article class="pc"><div class="pt"><span class="pn">01</span><span class="pu">One-off · fixed</span></div><h3>Discovery</h3><p>A 3–4 day investigation, your AI Transformation Report and a leadership readout.</p><a class="pl" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></article>
-  <article class="pc"><div class="pt"><span class="pn">02</span><span class="pu">Monthly</span></div><h3>Fractional Transformation Lead</h3><p>A senior lead for your AI programme: roadmap, governance rules, vendors, adoption and monthly steering reports.</p></article>
-  <article class="pc"><div class="pt"><span class="pn">03</span><span class="pu">Monthly</span></div><h3>Monthly consultancy</h3><p>Architecture, delivery management, monitoring, fixes, minor changes and tuning.</p></article>
+  <article class="pc"><div class="pt"><span class="pn">01</span><span class="pu">One-off · fixed</span></div><h3>Discovery</h3><p class="pp">Starting from <b>$XXXX</b> <small>fixed</small></p><p>A 3–4 day investigation, your AI Transformation Report and a leadership readout.</p><a class="pl" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></article>
+  <article class="pc"><div class="pt"><span class="pn">02</span><span class="pu">Monthly</span></div><h3>Fractional Transformation Lead</h3><p class="pp">Starting from <b>$XXXX</b> <small>a month</small></p><p>A senior lead for your AI programme: roadmap, governance rules, vendors, adoption and monthly steering reports.</p></article>
+  <article class="pc"><div class="pt"><span class="pn">03</span><span class="pu">Monthly</span></div><h3>Monthly consultancy</h3><p class="pp">Starting from <b>$XXXX</b> <small>a month</small></p><p>Architecture, delivery management, monitoring, fixes, minor changes and tuning.</p></article>
   <article class="pc"><div class="pt"><span class="pn">04</span><span class="pu">Fixed per item</span></div><h3>Build: fixed cost per item</h3><p>Design, build, integration, testing, onboarding and launch of each agent, tool or change, priced before its wave starts.</p></article>
   <article class="pc ext"><div class="pt"><span class="pn">05</span><span class="pu">Paid by you · at cost</span></div><h3>External costs</h3><p>Software licences, AI model usage, hosting, data providers and APIs, billed to you directly by each provider.</p></article>
  </div>
  <div class="card pflow"><span class="label">How it fits together</span>
   <ol><li><b>Discovery</b><span>Once, at the start</span></li><li><b>Lead + consultancy</b><span>Monthly, while the programme runs</span></li><li><b>Builds in waves</b><span>A fixed price per item, agreed per wave</span></li><li><b>External costs</b><span>Direct to providers, as you use them</span></li></ol>
-  <p>Your fees are in your proposal{% if legal %} under <a href="#legal">Project docs</a>{% endif %}. Questions? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">Ask {{ con.name.split(' ')[0] }}</a>.</p>
+  <p>Your exact fees are in your proposal{% if legal %} under <a href="#legal">Project docs</a>{% endif %}. Questions? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">Ask {{ con.name.split(' ')[0] }}</a>.</p>
  </div>
 </section>
 
