@@ -30,13 +30,15 @@ FILES_DIR = os.path.join(S.DATA_DIR, "files")
 MAX_FILE = 25 * 1024 * 1024
 STRIPE_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
 CAL_URL = "https://cal.com/moshe-david/ai-transformation-discovery?overlayCalendar=true"
-STATUSES = ["Lead", "Active", "Paused", "Past"]
+STATUSES = ["Lead", "Introduction", "Active", "Paused", "Past"]
 DOC_TYPES = ["Proposal", "Agreement", "Statement of work", "NDA", "Report", "Other"]
 INLINE = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"}
 CLIENT_FIELDS = ["company", "website", "industry", "country", "address", "status", "engagement",
                  "contact_name", "contact_title", "contact_email", "contact_phone", "contact_linkedin",
                  "notes", "stripe_customer_id", "phase", "consultant_note"]
-PHASES = ["Discovery", "Design", "Build", "Adopt", "Run and evolve"]
+PHASES = ["Introduction", "Discovery", "Design", "Build", "Adopt", "Run and evolve"]
+PHASE_LINKS = {"Introduction": "", "Discovery": "#phases", "Design": "#phases", "Build": "#phases", "Adopt": "#phases", "Run and evolve": "#phases"}
+PAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pages")
 SELF_FIELDS = ["contact_name", "contact_title", "contact_phone", "contact_linkedin"]
 CONSULTANT_DEFAULT = {"name": "Moshe David", "title": "Founder, Automagic AI", "email": "hello@automagic.agency",
                       "phone": "", "linkedin": "", "cal_url": CAL_URL,
@@ -465,6 +467,15 @@ def admin_client_logo_get(cid):
     return logo_response(client_row(cid))
 
 
+@bp.get("/portal/how-we-work")
+def portal_how_we_work():
+    if not current_client() and not session.get("admin"):
+        return redirect("/login/")
+    resp = send_file(os.path.join(PAGES_DIR, "how-we-work.html"), mimetype="text/html", max_age=0)
+    resp.headers["Cache-Control"] = "private, no-store"
+    return resp
+
+
 @bp.get("/portal/logo")
 def portal_logo():
     c = current_client()
@@ -647,7 +658,7 @@ def portal():
         return redirect("/login/")
     inv, inv_err = invoices(c["stripe_customer_id"])
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
-    return render_template_string(PORTAL, c=c, first=first, phases=PHASES, con=consultant_for(c), legal=files_for(c["id"], "legal"),
+    return render_template_string(PORTAL, c=c, first=first, phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
                                   drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
@@ -765,7 +776,7 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
   <div><label class="f" for="status">Status</label><select id="status" name="status">{% for s in statuses %}<option{% if c.status == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
   <div><label class="f" for="engagement">Engagement type</label><select id="engagement" name="engagement"><option value="">Not set</option>{% for t in types %}<option{% if c.engagement == t %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
   <div><label class="f" for="consultant_id">Consultant</label><select id="consultant_id" name="consultant_id"><option value="">Default{% if cons %} ({{ cons[0].name }}){% endif %}</option>{% for x in cons %}<option value="{{ x.id }}"{% if c.consultant_id == x.id %} selected{% endif %}>{{ x.name }}{% if x.title %} · {{ x.title }}{% endif %}</option>{% endfor %}</select></div>
-  <div><label class="f" for="phase">Project phase (shown in the portal)</label><select id="phase" name="phase"><option value="">Not shown</option>{% for ph in phases %}<option{% if c.phase == ph %} selected{% endif %}>{{ ph }}</option>{% endfor %}</select></div>
+  <div><label class="f" for="phase">Project phase (shown in the portal)</label><select id="phase" name="phase"><option value="">Not set (shows Introduction)</option>{% for ph in phases %}<option{% if c.phase == ph %} selected{% endif %}>{{ ph }}</option>{% endfor %}</select></div>
   <div class="full"><label class="f" for="address">Address</label><textarea id="address" name="address" style="min-height:70px">{{ c.address or '' }}</textarea></div>
  </div>
  <p class="mono" style="margin-top:22px">Main contact</p>
@@ -950,16 +961,21 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .chip{font:500 12px var(--fm);letter-spacing:.05em;padding:5px 10px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted);background:rgba(10,16,24,.35)}
 .chip b{color:var(--ink);font-weight:500}.chip.ok{color:var(--ok);border-color:rgba(127,211,166,.4)}
-.phases{list-style:none;margin:24px 0 0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;counter-reset:ph}
-.phases li{display:grid;gap:8px;font:500 12px var(--fm);letter-spacing:.04em;color:var(--faint)}
-.phases li::before{content:"";height:6px;border-radius:3px;background:var(--line-2)}
-.phases li.done{color:var(--muted)}.phases li.done::before{background:rgba(127,211,228,.55)}
-.phases li.now{color:var(--cyan)}.phases li.now::before{background:var(--cyan);box-shadow:0 0 12px rgba(127,211,228,.55)}
+.phases{list-style:none;margin:24px 0 0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;counter-reset:ph}
+.phases li{font:500 12px var(--fm);letter-spacing:.04em;color:var(--faint);min-width:0}.phases li a{display:grid;gap:8px;color:inherit;text-decoration:none}.phases li a:hover{color:var(--ink)}
+.phases li a::before{content:"";height:6px;border-radius:3px;background:var(--line-2)}
+.phases li.done{color:var(--muted)}.phases li.done a::before{background:rgba(127,211,228,.55)}
+.phases li.now{color:var(--cyan)}.phases li.now a::before{background:var(--cyan);box-shadow:0 0 12px rgba(127,211,228,.55)}
 .phases li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media (max-width:560px){.phases{grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}.phases li span{display:none}.phases li.now span{display:block;overflow:visible;grid-column:1}}
+.hero p.hww{margin:14px 0 0;font-size:14px}.hww a{text-decoration:none}
+@media (max-width:560px){.phases{grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}.phases li span{display:none}.phases li.now span{display:block;overflow:visible;grid-column:1}}
 .ov{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;margin-top:20px;align-items:start}
 .ov-main{display:grid;gap:20px;min-width:0}
 @media (max-width:1060px){.ov{grid-template-columns:minmax(0,1fr)}.ov-side{order:-1}}
+.intro{border-color:rgba(127,211,228,.35);background:linear-gradient(160deg,rgba(127,211,228,.10),var(--surface) 65%)}
+.intro h3{font-size:clamp(20px,2.2vw,24px);margin:10px 0 8px}.intro>p{margin:0;color:var(--muted);line-height:1.6;max-width:62ch}
+.isteps{margin:16px 0 0;padding-left:20px;display:grid;gap:8px;color:var(--muted);line-height:1.55}.isteps b{color:var(--ink);font-weight:600}
+.iact{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
 .cnote{border-color:rgba(127,211,228,.35);background:linear-gradient(160deg,rgba(127,211,228,.08),var(--surface) 60%)}
 .cnote p{margin:10px 0 0;white-space:pre-line;font-size:16px;line-height:1.6}
 .cnote small{display:block;margin-top:10px;color:var(--faint);font-size:13px}
@@ -1063,10 +1079,21 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
   {% if c.company %}<p class="co">{{ c.company }}</p>{% endif %}</div>
   {% if c.logo %}<div class="clogo"><img src="/portal/logo?v={{ c.logo }}" alt="{{ c.company }} logo"></div>{% endif %}</div>
   <div class="chips">{% if c.engagement %}<span class="chip"><b>{{ c.engagement }}</b></span>{% endif %}<span class="chip{% if c.status == 'Active' %} ok{% endif %}">{{ c.status or 'Active' }}</span></div>
-  {% if c.phase in phases %}{% set cur = phases.index(c.phase) %}<ol class="phases" aria-label="Project progress">{% for ph in phases %}<li class="{{ 'done' if loop.index0 < cur else 'now' if loop.index0 == cur else '' }}"{% if loop.index0 == cur %} aria-current="step"{% endif %}><span>{{ ph }}</span></li>{% endfor %}</ol>{% endif %}
+  {% set cur = phases.index(c.phase) if c.phase in phases else 0 %}<ol class="phases" aria-label="Project progress">{% for ph in phases %}<li class="{{ 'done' if loop.index0 < cur else 'now' if loop.index0 == cur else '' }}"><a href="/portal/how-we-work{{ phase_links[ph] }}"{% if loop.index0 == cur %} aria-current="step"{% endif %}><span>{% if loop.first %}1 · {% endif %}{{ ph }}</span></a></li>{% endfor %}</ol>
+  {% if cur > 0 %}<p class="hww"><a href="/portal/how-we-work">How we work →</a></p>{% endif %}
  </div>
  <div class="ov">
   <div class="ov-main">
+   {% if cur == 0 %}<div class="card intro"><span class="label">Step 1 · Start here</span>
+    <h3>Get to know how we work</h3>
+    <p>Before discovery begins, take ten minutes to see what the journey looks like: the five phases from discovery to running and evolving your AI, what we need from your team, and what you get at each step.</p>
+    <ol class="isteps">
+     <li><b>Learn how we work.</b> Our approach, the five phases in detail and how we measure the return.</li>
+     <li><b>See a real discovery report.</b> The findings, solutions and roadmap we delivered for an executive search firm, so you know exactly what discovery produces.</li>
+     <li><b>Bring your questions</b> to your first session with {{ con.name.split(' ')[0] }}.</li>
+    </ol>
+    <div class="iact"><a class="btn btn-p" href="/portal/how-we-work">How we work →</a><a class="btn btn-g" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></div>
+   </div>{% endif %}
    {% if c.consultant_note %}<div class="card cnote"><span class="label">Note from {{ con.name.split(' ')[0] }}</span><p>{{ c.consultant_note }}</p></div>{% endif %}
    <div class="card panel"><div class="hd"><h3>{{ icon('doc')|safe }}Project docs</h3>{% if legal %}<a href="#legal">View all {{ legal|length }}</a>{% endif %}</div>
     {% if legal %}<ul class="rows">{% for f in legal[:3] %}<li><span class="mini">{{ f.name|ext }}</span><span class="tx"><b>{{ f.name }}</b><span>{{ f.category or 'Document' }} · shared {{ f.at[:10] }}</span></span><a class="btn btn-g btn-s" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener">Open</a></li>{% endfor %}</ul>
