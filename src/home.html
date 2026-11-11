@@ -39,6 +39,7 @@ a{color:inherit}
 h2{font-family:var(--font-display);font-weight:600;font-size:clamp(26px,3vw,34px);line-height:1.15;letter-spacing:-.02em;margin:0 0 10px;color:var(--navy-deep)}
 .sec-lede{color:var(--muted);max-width:64ch;margin:0 0 24px}
 section.blk{padding-block:56px 8px}
+main>section.blk:first-child{padding-top:40px}
 
 /* hero */
 .hero{background:var(--band);color:var(--band-ink);position:relative;overflow:hidden}
@@ -158,21 +159,6 @@ footer a{color:var(--cyan-ink)}
 </head>
 <body>
 
-<header class="hero">
-  <div class="wrap">
-    <div>
-      <p class="kicker">Portfolio · Selected engagements</p>
-      <h1>AI that our clients now own</h1>
-      <p class="lede">The organisations we have helped put AI to work: what each one needed, what we built, how the engagement was structured, and what they now own.</p>
-    </div>
-    <div class="stats" role="list">
-      <div class="stat" role="listitem"><div class="n" id="st-count">9</div><div class="l">Client engagements</div></div>
-      <div class="stat" role="listitem"><div class="n flags" id="st-flags"></div><div class="l">Markets served</div></div>
-      <div class="stat" role="listitem"><div class="n">$100M<em>+</em></div><div class="l">Pipeline created by Revscale agents</div></div>
-      <div class="stat" role="listitem"><div class="n">200<em>+</em></div><div class="l">Zugi.ai design partners</div></div>
-    </div>
-  </div>
-</header>
 
 <main class="wrap">
 
@@ -276,8 +262,6 @@ footer a{color:var(--cyan-ink)}
   function status(c){if(!c.status)return '';var k=/Completed/.test(c.status)?'ok':/Live|progress/.test(c.status)?'live':'';return '<span class="status '+k+'">'+esc(c.status)+'</span>'}
   function metric(c){var o=(c.outcomes||[]).filter(function(o){return o.v&&/\d/.test(o.v)})[0];return o?'<b>'+esc(o.v)+'</b><span>'+esc(o.d.replace(/ \(reported by [^)]*\)/,''))+'</span>':''}
 
-  document.getElementById('st-count').textContent=CLIENTS.length;
-  document.getElementById('st-flags').innerHTML=['il','uk','us'].map(function(k){return FLAGS[k]+k.toUpperCase()}).join(' <em>·</em> ');
   [].forEach.call(document.querySelectorAll('[data-flag]'),function(el){el.insertAdjacentHTML('afterbegin',flagFor(el.getAttribute('data-flag')))});
 
   document.getElementById('grid').innerHTML=CLIENTS.map(function(c){
