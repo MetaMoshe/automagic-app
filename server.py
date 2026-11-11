@@ -336,7 +336,7 @@ def site(path):
         abort(404)
     if full.endswith(".html"):
         page = "/" + path
-        if page not in OPEN_PAGES and not access_email() and not session.get("admin"):
+        if page not in OPEN_PAGES and not access_email() and not session.get("admin") and not portal.current_client():
             return redirect("/welcome/?next=" + quote(page))
         resp = send_file(full, max_age=0)
         resp.headers["Cache-Control"] = "no-store"

@@ -808,6 +808,8 @@ ICON = {
  "mail": '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/>',
  "phone": '<path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 5a2 2 0 0 1 2-2z"/>',
  "in": '<rect x="2" y="2" width="20" height="20" rx="3"/><path d="M7 10v7M7 7v.01M11 17v-4a2 2 0 0 1 4 0v4M11 10v7"/>',
+ "book": '<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v15H5.5A1.5 1.5 0 0 0 4 19.5z"/><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H20v-3M8 7h8M8 11h6"/>',
+ "ext": '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
  "cal": '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
 }
 
@@ -846,6 +848,15 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
  .side{position:static;display:flex;overflow-x:auto;gap:6px;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}.side::-webkit-scrollbar{display:none}
  .side a{flex:none;border:1px solid var(--line);padding:8px 12px;font-size:14px}.side a.on{box-shadow:none;border-color:var(--cyan)}}
 .view[hidden]{display:none}
+.side a.ext{position:relative;margin-top:10px;border-top:1px solid var(--line);border-radius:0 0 8px 8px;padding-top:14px}.side a.ext svg:last-child{margin-left:auto;opacity:.6}
+@media (max-width:900px){.side a.ext{margin-top:0;border-radius:8px;padding-top:8px;border:1px solid var(--line)}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.foot{border-top:1px solid var(--line);background:var(--bg-2)}
+.foot .in{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:12px 28px;flex-wrap:wrap;padding:20px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));font-size:13.5px;color:var(--faint)}
+.foot nav{display:flex;gap:6px 20px;flex-wrap:wrap}
+.foot a{color:var(--muted);text-decoration:none}.foot a:hover{color:var(--ink)}
+.foot .help{margin-left:auto}.foot .help a{color:var(--cyan)}
+@media (max-width:700px){.foot .help{margin-left:0;width:100%}}
 .label{display:inline-flex;align-items:center;gap:9px;font:500 12px var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
 .label::before{content:"";width:8px;height:8px;background:var(--cyan)}
 .vh{display:grid;gap:10px;margin-bottom:24px}.vh h2{font-size:clamp(26px,3vw,34px);font-weight:600}.vh p{color:var(--muted);max-width:62ch;margin:0}
@@ -949,6 +960,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
  <a href="#drive" data-v="drive">{{ icon('drive')|safe }}Your Drive</a>
  <a href="#settings" data-v="settings">{{ icon('gear')|safe }}Settings</a>
+ <a href="/work/" target="_blank" rel="noopener" class="ext">{{ icon('book')|safe }}Case studies<span class="sr">(opens in a new tab)</span>{{ icon('ext', 14)|safe }}</a>
 </nav>
 <main>
 {% if note %}<p class="note" role="status">{{ note }}</p>{% endif %}
@@ -1056,6 +1068,11 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  </div>
 </section>
 </main></div>
+<footer class="foot"><div class="in">
+ <span>© 2026 Automagic AI</span>
+ <nav aria-label="Footer"><a href="/" target="_blank" rel="noopener">Website</a><a href="/work/" target="_blank" rel="noopener">Case studies</a><a href="/terms/" target="_blank" rel="noopener">Terms and privacy</a>{% if con.email %}<a href="mailto:{{ con.email }}">Contact {{ con.name.split(' ')[0] }}</a>{% endif %}</nav>
+ <span class="help">Need help? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">{{ con.email or 'hello@automagic.agency' }}</a></span>
+</div></footer>
 <script>
 (function(){
   var views=['home','consultant','legal','invoices','drive','settings'];
