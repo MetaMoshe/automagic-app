@@ -81,6 +81,55 @@ def more(active):
     return f'<div class="wrap am-more"><h2>{title}</h2><div class="am-cards">{cards}</div></div>'
 
 
+DROP_HUNTER = ["business-case", "investment-summary", "next-steps", "p-summary", "p-engagement-model",
+               "p-fixed-costs", "p-running-and-third-party-costs-paid-by-hunter", "p-terms"]
+
+
+def must(html, old, new):
+    assert old in html, "Hunter clean-up: text not found: " + old[:60]
+    return html.replace(old, new)
+
+
+def clean_hunter(html):
+    """Public version of the Hunter report: drop commercial terms and confidential labels."""
+    for sid in DROP_HUNTER:
+        html, n = re.subn(r'<section class="sec[^"]*" id="%s".*?</section>\s*' % sid, "", html, flags=re.S)
+        assert n == 1, sid
+        html = re.sub(r'<li><a href="#%s">.*?</a></li>' % sid, "", html)
+    html, n = re.subn(r'<div class="part" id="proposal">.*?</div>\s*', "", html, flags=re.S)
+    assert n == 1
+    html, n = re.subn(r'<h5>Stage 1 proposal</h5>\s*<ol>\s*</ol>\s*', "", html)
+    assert n == 1
+    html = must(html, '<p class="kicker">Part three</p>', '<p class="kicker">Part two</p>')
+    html, n = re.subn(r'<p class="note">.*?</p>',
+        '<p class="note">This case study presents the Discovery Findings report Automagic delivered to Hunter Executive, '
+        'with commercial terms removed. The PESA platform it proposed was then built and rolled out in three waves.</p>',
+        html, count=1, flags=re.S)
+    assert n == 1
+    html = must(html, "Client report · Confidential", "Client case study · AI transformation")
+    html = must(html, "Prepared 10 November 2026 · Confidential", "Published November 2026")
+    html = must(html, "how Stage 1 is scoped, sequenced and priced", "how Stage 1 was scoped and sequenced")
+    html, n = re.subn(r'<p><strong>The case and the cost\.</strong>.*?</p>',
+        '<p><strong>The case.</strong> Stage 1 returns about 7 hours a week to each of 12 users and about three extra '
+        'mandates a year, and on expected assumptions pays back in about 12 months. The engagement is a hybrid of a '
+        'Fractional Transformation Lead, a monthly consultancy fee and a fixed cost per agent; Hunter owns what is built '
+        'and pays providers directly.</p>', html, count=1, flags=re.S)
+    assert n == 1
+    # Roadmap: drop the running-cost column of the "After Stage 1" table.
+    html = must(html, "<th>Indicative effort</th><th>Indicative running cost</th>", "<th>Indicative effort</th>")
+    html, n = re.subn(r'(capabilities(?:, built alongside agent use)?</td>)<td>[^<]*(?:<span class="tbc">\$XXX</span>[^<]*)+</td>',
+                      r"\1", html)
+    assert n == 2, n
+    html = must(html, '<span class="tbc">$XXX</span> a year (3 mandates × average fee)', "3 mandates a year × average fee")
+    html = re.sub(r'loaded hourly cost \(<span class="tbc">\$XXX</span>\)', "loaded hourly cost", html)
+    html = html.replace(", as set out in the investment summary", "")
+    # Renumber the section eyebrows after the removals.
+    k = iter(range(1, 100))
+    html = re.sub(r'<p class="eyebrow">Section \d+</p>', lambda m: '<p class="eyebrow">Section %02d</p>' % next(k), html)
+    assert "$XXX" not in html and "Confidential" not in html, "leftover"
+    return html
+
+
 def build():
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -94,6 +143,8 @@ def build():
         if m:
             html = html.replace(title, "", 1)
         html = html.replace("</head>", title + CSS + "</head>", 1)
+        if slug == "hunter":
+            html = clean_hunter(html)
         html = html.replace("<body>", "<body>" + nav(slug), 1)
         # Cross-links: claude.ai artifact URLs -> in-site pages, opened in place.
         for aid, path in ids.items():
