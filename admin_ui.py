@@ -147,7 +147,7 @@ MENU = [
     ("Workspace", "inbox", "Inbox", "/admin/inbox", "inbox"),
     ("Workspace", "chart", "Analytics", "/admin", None),
     ("Sales", "leads", "Lead CRM", "/admin/leads", "leads"),
-    ("Delivery", "clients", "Clients", "/admin/clients", None),
+    ("Delivery", "clients", "Clients", "/admin/clients", "clients"),
     ("Delivery", "consultants", "Consultants", "/admin/consultants", None),
     ("Delivery", "pricing", "Pricing page", "/admin/pricing", None),
     ("Audience", "visitors", "Access and visitors", "/admin/visitors", None),

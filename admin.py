@@ -110,7 +110,8 @@ def admin_nav():
               + S.q("SELECT COUNT(*) FROM access WHERE at > ?", (t,), one=True)[0]
               + S.q("SELECT COUNT(*) FROM client_files WHERE uploaded_by = 'client' AND at > ?", (t,), one=True)[0])
     new_leads = S.q("SELECT COUNT(*) FROM leads WHERE COALESCE(status, 'New') = 'New'", one=True)[0]
-    return {"admin_nav": {"inbox": unread, "leads": new_leads}}
+    msgs = S.q("SELECT COUNT(*) FROM messages WHERE sender = 'client' AND read_admin IS NULL", one=True)[0]
+    return {"admin_nav": {"inbox": unread, "leads": new_leads, "clients": msgs}}
 
 
 def guard():

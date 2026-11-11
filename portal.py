@@ -63,6 +63,9 @@ def init():
             "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)",
             f"CREATE TABLE IF NOT EXISTS consultants (id {pk}, created TEXT NOT NULL, updated TEXT, "
             + ", ".join(f"{k} TEXT" for k in CON_FIELDS) + ", photo TEXT)",
+            f"CREATE TABLE IF NOT EXISTS messages (id {pk}, client_id INTEGER NOT NULL, at TEXT NOT NULL, sender TEXT NOT NULL, "
+            "author TEXT, subject TEXT, body TEXT NOT NULL, read_client TEXT, read_admin TEXT)",
+            "CREATE INDEX IF NOT EXISTS messages_client ON messages (client_id)",
         ):
             S.q(sql)
         have = None if S.DATABASE_URL else [r[1] for r in S.q("PRAGMA table_info(clients)")]
@@ -111,6 +114,19 @@ def files_for(cid, kind=None):
         args.append(kind)
     rows = S.q(sql + " ORDER BY at DESC, id DESC", tuple(args))
     return [dict(zip(["id", "at", "kind", "category", "name", "size", "mime", "uploaded_by"], r)) for r in rows]
+
+
+MSG_KEYS = ["id", "at", "sender", "author", "subject", "body", "read_client", "read_admin"]
+
+
+def messages_for(cid):
+    rows = S.q("SELECT " + ", ".join(MSG_KEYS) + " FROM messages WHERE client_id = ? ORDER BY at, id", (cid,))
+    return [dict(zip(MSG_KEYS, r)) for r in rows]
+
+
+def add_message(cid, sender, author, subject, body):
+    S.q("INSERT INTO messages (client_id, at, sender, author, subject, body) VALUES (?, ?, ?, ?, ?, ?)",
+        (cid, S.now(), sender, author, subject, body))
 
 
 def legacy_consultant():
@@ -433,6 +449,7 @@ def admin_client_delete(cid):
         os.rmdir(os.path.join(FILES_DIR, str(int(cid))))
     except OSError:
         pass
+    S.q("DELETE FROM messages WHERE client_id = ?", (cid,))
     S.q("DELETE FROM clients WHERE id = ?", (cid,))
     commit()
     return redirect("/admin/clients")
@@ -643,6 +660,32 @@ def admin_consultant(pid=None):
                                   is_default=bool(pid and first and first[0] == pid))
 
 
+@bp.route("/admin/clients/<int:cid>/inbox", methods=["GET", "POST"])
+def admin_client_inbox(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    if not c:
+        abort(404)
+    con = consultant_for(c)
+    if request.method == "POST":
+        body = S.clip(request.form.get("body"), 10000).strip()
+        if not body:
+            return redirect(f"/admin/clients/{cid}/inbox?err=1")
+        author = S.clip(request.form.get("author"), 200) or con["name"]
+        add_message(cid, "consultant", author, S.clip(request.form.get("subject"), 200), body)
+        commit()
+        return redirect(f"/admin/clients/{cid}/inbox?sent=1#latest")
+    msgs = messages_for(cid)
+    unread_ids = [m["id"] for m in msgs if m["sender"] == "client" and not m["read_admin"]]
+    if unread_ids:
+        S.q("UPDATE messages SET read_admin = ? WHERE client_id = ? AND sender = 'client' AND read_admin IS NULL", (S.now(), cid))
+        commit()
+    return render_template_string(ADMIN_INBOX, c=c, cid=cid, con=con, msgs=msgs, new_ids=unread_ids,
+                                  sent=request.args.get("sent"), err=request.args.get("err"))
+
+
 @bp.route("/admin/pricing", methods=["GET", "POST"])
 def admin_pricing():
     r = admin_only()
@@ -754,7 +797,8 @@ def portal():
         return redirect("/login/")
     inv, inv_err = invoices(c["stripe_customer_id"])
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
-    return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
+    msgs = messages_for(c["id"])
+    return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), msgs=msgs, unread=sum(1 for m in msgs if m["sender"] == "consultant" and not m["read_client"]), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
                                   drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
@@ -800,6 +844,29 @@ def portal_billing():
         return redirect(s["url"])
     except Exception as e:
         return redirect("/portal/?note=" + urllib.parse.quote("Billing settings are not available right now: " + str(e)) + "#invoices")
+
+
+@bp.post("/portal/inbox")
+def portal_inbox_send():
+    c = current_client()
+    if not c:
+        abort(401)
+    body = S.clip(request.form.get("body"), 10000).strip()
+    if not body:
+        return redirect("/portal/?note=Write+a+message+first.#inbox")
+    add_message(c["id"], "client", c["contact_name"] or c["contact_email"], S.clip(request.form.get("subject"), 200), body)
+    commit()
+    return redirect("/portal/?note=Message+sent.#inbox")
+
+
+@bp.post("/portal/api/inbox/read")
+def portal_inbox_read():
+    c = current_client()
+    if not c:
+        abort(401)
+    S.q("UPDATE messages SET read_client = ? WHERE client_id = ? AND sender = 'consultant' AND read_client IS NULL", (S.now(), c["id"]))
+    commit()
+    return jsonify(ok=True)
 
 
 @bp.post("/portal/settings")
@@ -851,13 +918,19 @@ ADMIN_LIST = U.head("clients", "Clients") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Clients</h2><a class="btn" href="/admin/clients/new">Add client</a></div>
 <p class="mono" style="margin:10px 0 16px;text-transform:none;letter-spacing:0">{% for s in statuses %}{{ s }}: {{ counts[s] }}{% if not loop.last %} · {% endif %}{% endfor %}{% if not stripe %} · Stripe not connected (set STRIPE_SECRET_KEY){% endif %}</p>
 {% if rows %}<div class="tw"><table><thead><tr><th>Company</th><th>Contact</th><th>Status</th><th>Engagement</th><th>Consultant</th><th>Portal</th><th>Files</th><th>Last login (UTC)</th></tr></thead><tbody>
-{% for id, company, name, email, status, eng, portal, last, nfiles, con in rows %}<tr class="rowlink" onclick="location='/admin/clients/{{ id }}'"><td><a href="/admin/clients/{{ id }}">{{ company }}</a></td><td>{{ name or '' }}{% if email %}<br><span class="mono" style="text-transform:none;letter-spacing:0">{{ email }}</span>{% endif %}</td>
+{% for id, company, name, email, status, eng, portal, last, nfiles, con in rows %}<tr class="rowlink" onclick="location='/admin/clients/{{ id }}'"><td><a href="/admin/clients/{{ id }}">{{ company }}</a>{% set n = client_unread(id) %}{% if n %} <a class="pill" href="/admin/clients/{{ id }}/inbox" title="Unread messages">{{ n }} new message{{ '' if n == 1 else 's' }}</a>{% endif %}</td><td>{{ name or '' }}{% if email %}<br><span class="mono" style="text-transform:none;letter-spacing:0">{{ email }}</span>{% endif %}</td>
 <td><span class="pill{% if status != 'Active' %} off{% endif %}">{{ status or 'Lead' }}</span></td><td>{{ eng or '' }}</td><td>{{ con }}</td><td>{% if portal %}<span class="pill">On</span>{% else %}<span class="pill off">Off</span>{% endif %}</td><td>{{ nfiles }}</td><td>{{ (last or '')[:16]|replace('T',' ') }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No clients yet. Add your first client to give them a portal login and share documents.</div>{% endif %}
 </section>""" + ADMIN_FOOT
 
-ADMIN_CLIENT = U.head("clients", "Client") + """
+TABS_SRC = """{% macro ctabs(cid, active) %}<nav class="ctabs" aria-label="Client sections"><a href="/admin/clients/{{ cid }}"{% if active == 'profile' %} class="on" aria-current="page"{% endif %}>Profile and files</a><a href="/admin/clients/{{ cid }}/inbox"{% if active == 'inbox' %} class="on" aria-current="page"{% endif %}>Inbox{% set n = client_unread(cid) %}{% if n %} <span class="n">{{ n }}</span>{% endif %}</a></nav>
+<style>.ctabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 18px}.ctabs a{padding:10px 14px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
+.ctabs a:hover{color:var(--ink)}.ctabs a.on{color:var(--ink);border-bottom-color:var(--cyan)}.ctabs .n{font:600 11px var(--fm);background:var(--cyan);color:#062028;border-radius:999px;padding:2px 7px}</style>{% endmacro %}
+"""
+
+ADMIN_CLIENT = U.head("clients", "Client") + TABS_SRC + """
 <section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company or 'New client' }}</h2>
+{% if cid %}{{ ctabs(cid, 'profile') }}{% endif %}
 {% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
 {% if request.args.get('stripe_error') %}<p class="err" role="alert">Stripe: {{ request.args.get('stripe_error') }}</p>{% endif %}
 {% if new_pw %}<div class="card" style="margin-bottom:16px"><p class="mono">Client login</p><p>Login page: <a href="{{ login_url }}">{{ login_url }}</a><br>Email: <b>{{ c.contact_email }}</b></p><p class="secret">{{ new_pw }}</p></div>{% endif %}
@@ -950,6 +1023,35 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
   })});
 })();
 </script>""" + ADMIN_FOOT
+
+ADMIN_INBOX = U.head("clients", "Client inbox") + TABS_SRC + """
+<section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company }}</h2>
+{{ ctabs(cid, 'inbox') }}
+{% if sent %}<p class="ok" role="status">Message sent. {{ c.contact_name or 'The client' }} sees it in their portal Inbox.</p>{% elif err %}<p class="err" role="alert">Write a message first.</p>{% endif %}
+{% if not c.portal_enabled %}<p class="err" role="status">Portal access is off for this client, so they can't read messages yet. Turn it on under Profile and files.</p>{% endif %}
+<div class="mbox">
+ <div class="card thread"><p class="mono">Conversation with {{ c.contact_name or c.company }} · {{ msgs|length }} message{{ '' if msgs|length == 1 else 's' }}</p>
+  {% if msgs %}<ol class="msgs">{% for m in msgs %}<li class="m {{ m.sender }}{% if m.id in new_ids %} new{% endif %}"{% if loop.last %} id="latest"{% endif %}>
+   <div class="mh"><b>{{ m.author or ('Client' if m.sender == 'client' else 'Automagic') }}</b><span>{{ 'Client' if m.sender == 'client' else 'Sent to client' }} · {{ m.at[:16]|replace('T',' ') }} UTC</span>
+   {% if m.sender == 'consultant' %}<span class="rd">{{ 'Read ' ~ m.read_client[:16]|replace('T',' ') if m.read_client else 'Not read yet' }}</span>{% elif m.id in new_ids %}<span class="pill">New</span>{% endif %}</div>
+   {% if m.subject %}<p class="sj">{{ m.subject }}</p>{% endif %}<div class="bd">{{ m.body }}</div></li>{% endfor %}</ol>
+  {% else %}<p class="empty">No messages yet. Messages you send appear in the client's portal Inbox, and their replies show up here.</p>{% endif %}
+ </div>
+ <form class="card compose" method="post"><p class="mono">New message</p>
+  <div><label class="f" for="author">From</label><input type="text" id="author" name="author" value="{{ con.name }}"></div>
+  <div><label class="f" for="subject">Subject (optional)</label><input type="text" id="subject" name="subject" maxlength="200"></div>
+  <div><label class="f" for="body">Message</label><textarea id="body" name="body" required style="min-height:180px" placeholder="Hi {{ (c.contact_name or '').split(' ')[0] or 'there' }}, ..."></textarea></div>
+  <div class="row"><button type="submit">Send to client</button></div>
+  <p class="empty" style="font-size:13px;margin:0">Delivered to the client's portal Inbox. Every message is kept here as a record.</p>
+ </form>
+</div>
+<style>.mbox{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}@media (max-width:1000px){.mbox{grid-template-columns:minmax(0,1fr)}}
+.compose{display:grid;gap:12px;position:sticky;top:20px}.msgs{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:12px}
+.m{border:1px solid var(--line);border-radius:12px;padding:14px 16px;max-width:85%;min-width:0}.m.consultant{margin-left:auto;background:rgba(127,211,228,.06);border-color:rgba(127,211,228,.3)}
+.m.new{border-color:var(--cyan)}.mh{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-size:13px;color:var(--faint)}.mh b{color:var(--ink);font-size:14.5px}.mh .rd{margin-left:auto}
+.sj{margin:8px 0 0;font-weight:600}.bd{margin-top:6px;white-space:pre-wrap;word-wrap:break-word;line-height:1.55}
+@media (max-width:640px){.m{max-width:100%}}</style>
+</section>""" + ADMIN_FOOT
 
 ADMIN_PRICING = U.head("pricing", "Pricing page") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Pricing page</h2></div>
@@ -1049,6 +1151,14 @@ def icon(name, size=18):
 
 S.app.jinja_env.globals["icon"] = icon
 
+
+def client_unread(cid):
+    """Messages from the client the team hasn't opened yet."""
+    return S.q("SELECT COUNT(*) FROM messages WHERE client_id = ? AND sender = 'client' AND read_admin IS NULL", (cid,), one=True)[0]
+
+
+S.app.jinja_env.globals["client_unread"] = client_unread
+
 PORTAL = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Client Portal · Automagic</title><meta name="robots" content="noindex">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -1121,8 +1231,17 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .intro h3{font-size:clamp(20px,2.2vw,24px);margin:10px 0 8px}.intro>p{margin:0;color:var(--muted);line-height:1.6;max-width:62ch}
 .isteps{margin:16px 0 0;padding-left:20px;display:grid;gap:8px;color:var(--muted);line-height:1.55}.isteps b{color:var(--ink);font-weight:600}
 .iact{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.side .badge{margin-left:auto;font:600 11px var(--fm);background:var(--cyan);color:var(--on-cyan);border-radius:999px;padding:2px 8px}
+.ov-side{display:grid;gap:16px;min-width:0}.mnew{display:flex;gap:12px;align-items:flex-start;text-decoration:none;color:var(--muted);border-color:rgba(127,211,228,.45);font-size:14px;line-height:1.5;padding:16px 18px}.mnew svg{flex:none;color:var(--cyan);margin-top:2px}.mnew b{color:var(--ink)}
+.ibx{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}@media (max-width:1000px){.ibx{grid-template-columns:minmax(0,1fr)}}
+.msgs{list-style:none;margin:0;padding:0;display:grid;gap:12px}.m{border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;max-width:88%}
+.m.me{margin-left:auto;background:rgba(127,211,228,.06);border-color:rgba(127,211,228,.3)}.m.new{border-color:var(--cyan);box-shadow:0 0 0 1px rgba(127,211,228,.25)}
+.mh{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:13px;color:var(--faint)}.mh b{color:var(--ink);font-size:15px}
+.m .sj{margin:8px 0 0;font-weight:600}.m .bd{margin-top:6px;white-space:pre-wrap;word-wrap:break-word;line-height:1.6;color:var(--ink)}
+@media (max-width:640px){.m{max-width:100%}}
+.f textarea{width:100%;font:15px var(--fb);color:var(--ink);background:var(--bg);border:1.5px solid var(--line-2);border-radius:9px;padding:11px 12px;resize:vertical}.f textarea:focus{outline:none;border-color:var(--cyan)}
 .cnote{border-color:rgba(127,211,228,.35);background:linear-gradient(160deg,rgba(127,211,228,.08),var(--surface) 60%)}
-.cnote p{margin:10px 0 0;white-space:pre-line;font-size:16px;line-height:1.6}
+.cnote p{margin:10px 0 0;white-space:pre-line;font-size:15px;line-height:1.6}
 .cnote small{display:block;margin-top:10px;color:var(--faint);font-size:13px}
 .card.panel{padding:0;overflow:hidden}
 .panel .hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
@@ -1219,6 +1338,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 <div class="shell">
 <nav class="side" aria-label="Portal">
  <a href="#home" data-v="home">{{ icon('home')|safe }}Overview</a>
+ <a href="#inbox" data-v="inbox">{{ icon('mail')|safe }}Inbox{% if unread %}<span class="badge" aria-label="{{ unread }} unread">{{ unread }}</span>{% endif %}</a>
  <a href="#consultant" data-v="consultant">{{ icon('user')|safe }}Your Consultant</a>
  <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Project docs</a>
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
@@ -1264,7 +1384,6 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
     </ol>
     <div class="iact"><a class="btn btn-p" href="/portal/how-we-work">How we work →</a><a class="btn btn-g" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></div>
    </div>{% endif %}
-   {% if c.consultant_note %}<div class="card cnote"><span class="label">Note from {{ con.name.split(' ')[0] }}</span><p>{{ c.consultant_note }}</p></div>{% endif %}
    <div class="card panel"><div class="hd"><h3>{{ icon('doc')|safe }}Project docs</h3>{% if legal %}<a href="#legal">View all {{ legal|length }}</a>{% endif %}</div>
     {% if legal %}<ul class="rows">{% for f in legal[:3] %}<li><span class="mini">{{ f.name|ext }}</span><span class="tx"><b>{{ f.name }}</b><span>{{ f.category or 'Document' }} · shared {{ f.at[:10] }}</span></span><a class="btn btn-g btn-s" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener">Open</a></li>{% endfor %}</ul>
     {% else %}<p class="none">No documents yet. Proposals and agreements will appear here when we share them.</p>{% endif %}</div>
@@ -1283,7 +1402,24 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
    <div class="cc-l">{% if con.email %}<a href="mailto:{{ con.email }}" aria-label="Email {{ con.name }}" title="{{ con.email }}">{{ icon('mail')|safe }}</a>{% endif %}{% if con.phone %}<a href="tel:{{ con.phone|replace(' ','') }}" aria-label="Call {{ con.name }}" title="{{ con.phone }}">{{ icon('phone')|safe }}</a>{% endif %}{% if con.linkedin %}<a href="{{ con.linkedin }}" target="_blank" rel="noopener" aria-label="{{ con.name }} on LinkedIn" title="LinkedIn">{{ icon('in')|safe }}</a>{% endif %}</div>
    <a class="btn btn-p" href="{{ con.cal_url }}" target="_blank" rel="noopener">{{ icon('cal')|safe }}Book a meeting</a>
    <a class="more" href="#consultant">About {{ con.name.split(' ')[0] }} →</a>
-  </div></aside>
+  </div>
+  {% if unread %}<a class="card mnew" href="#inbox">{{ icon('mail')|safe }}<span><b>{{ unread }} new message{{ '' if unread == 1 else 's' }}</b> from {{ con.name.split(' ')[0] }}. Open your inbox →</span></a>{% endif %}
+  {% if c.consultant_note %}<div class="card cnote"><span class="label">Note from {{ con.name.split(' ')[0] }}</span><p>{{ c.consultant_note }}</p></div>{% endif %}
+  </aside>
+ </div>
+</section>
+
+<section class="view" id="v-inbox" hidden>
+ <div class="vh"><span class="label">Inbox</span><h2>Messages from your team</h2><p>Updates and requests from {{ con.name.split(' ')[0] }}. Reply here and it goes straight to us.</p></div>
+ <div class="ibx">
+  <div class="card ithread">{% if msgs %}<ol class="msgs">{% for m in msgs|reverse %}<li class="m {{ 'me' if m.sender == 'client' else 'them' }}{% if m.sender == 'consultant' and not m.read_client %} new{% endif %}">
+    <div class="mh"><b>{{ 'You' if m.sender == 'client' else (m.author or con.name) }}</b><span>{{ m.at[:16]|replace('T',' ') }} UTC</span>{% if m.sender == 'consultant' and not m.read_client %}<span class="chip ok">New</span>{% endif %}</div>
+    {% if m.subject %}<p class="sj">{{ m.subject }}</p>{% endif %}<div class="bd">{{ m.body }}</div></li>{% endfor %}</ol>
+   {% else %}<div class="empty">No messages yet. When {{ con.name.split(' ')[0] }} sends you an update, it appears here.</div>{% endif %}</div>
+  <form class="card fg" method="post" action="/portal/inbox"><h3 style="font-size:19px">Write to {{ con.name.split(' ')[0] }}</h3>
+   <div class="f"><label for="m-subj">Subject (optional)</label><input id="m-subj" name="subject" maxlength="200"></div>
+   <div class="f"><label for="m-body">Message</label><textarea id="m-body" name="body" required rows="6"></textarea></div>
+   <div><button class="btn btn-p" type="submit">{{ icon('mail')|safe }}Send message</button></div></form>
  </div>
 </section>
 
@@ -1399,12 +1535,14 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </div></footer>
 <script>
 (function(){
-  var views=['home','consultant','legal','invoices','drive','pricing','roi','settings'];
+  var views=['home','inbox','consultant','legal','invoices','drive','pricing','roi','settings'];
   function show(){var v=(location.hash||'#home').slice(1); if(views.indexOf(v)<0) v='home';
     views.forEach(function(n){document.getElementById('v-'+n).hidden=n!==v});
     document.querySelectorAll('.side a').forEach(function(a){a.classList.toggle('on',a.dataset.v===v); if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current')});
     window.scrollTo(0,0);}
-  window.addEventListener('hashchange',show); show();
+  var unread={{ unread|tojson }};
+  function markRead(){ if(unread && location.hash==='#inbox'){ unread=0; fetch('/portal/api/inbox/read',{method:'POST',credentials:'same-origin'}).then(function(){ document.querySelectorAll('.side .badge').forEach(function(b){b.remove()}); }); } }
+  window.addEventListener('hashchange',function(){show();markRead()}); show(); markRead();
   var rf=document.getElementById('roi-f');
   if(rf){ var WK=46, fmt=function(n){return (n<0?'-$':'$')+Math.round(Math.abs(n)).toLocaleString('en-US')};
     var g=function(id){var v=parseFloat(document.getElementById(id).value);return isFinite(v)&&v>0?v:0};
