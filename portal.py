@@ -1231,9 +1231,9 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .intro h3{font-size:clamp(20px,2.2vw,24px);margin:10px 0 8px}.intro>p{margin:0;color:var(--muted);line-height:1.6;max-width:62ch}
 .isteps{margin:16px 0 0;padding-left:20px;display:grid;gap:8px;color:var(--muted);line-height:1.55}.isteps b{color:var(--ink);font-weight:600}
 .iact{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
-.panel .hd .badge{font:600 11px var(--fm);background:var(--cyan);color:var(--on-cyan);border-radius:999px;padding:2px 8px;margin-left:4px}.rows.mrows li{grid-template-columns:minmax(0,1fr) auto}.mrows .when{white-space:nowrap;flex:none;font:500 12px var(--fm);color:var(--faint);margin-left:auto}
+.ov.solo{grid-template-columns:minmax(0,1fr)}.ov.solo .ov-side{order:0;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:start}
 .side .badge{margin-left:auto;font:600 11px var(--fm);background:var(--cyan);color:var(--on-cyan);border-radius:999px;padding:2px 8px}
-.ov-side{display:grid;gap:16px;min-width:0}.mnew{display:flex;gap:12px;align-items:flex-start;text-decoration:none;color:var(--muted);border-color:rgba(127,211,228,.45);font-size:14px;line-height:1.5;padding:16px 18px}.mnew svg{flex:none;color:var(--cyan);margin-top:2px}.mnew b{color:var(--ink)}
+.ov-side{display:grid;gap:16px;min-width:0}
 .ibx{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}@media (max-width:1000px){.ibx{grid-template-columns:minmax(0,1fr)}}
 .msgs{list-style:none;margin:0;padding:0;display:grid;gap:12px}.m{border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;max-width:88%}
 .m.me{margin-left:auto;background:rgba(127,211,228,.06);border-color:rgba(127,211,228,.3)}.m.new{border-color:var(--cyan);box-shadow:0 0 0 1px rgba(127,211,228,.25)}
@@ -1343,7 +1343,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 <div class="shell">
 <nav class="side" aria-label="Portal">
  <a href="#home" data-v="home">{{ icon('home')|safe }}Overview</a>
- <a href="#inbox" data-v="inbox">{{ icon('mail')|safe }}Inbox{% if unread %}<span class="badge" aria-label="{{ unread }} unread">{{ unread }}</span>{% endif %}</a>
+ <a href="#inbox" data-v="inbox">{{ icon('mail')|safe }}Inbox{% if unread %}<span class="badge"><span class="sr">: </span>{{ unread }} new</span>{% endif %}</a>
  <a href="#consultant" data-v="consultant">{{ icon('user')|safe }}Your Consultant</a>
  <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Project docs</a>
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
@@ -1377,9 +1377,9 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
   {% set cur = phases.index(c.phase) if c.phase in phases else 0 %}<ol class="phases" aria-label="Project progress">{% for ph in phases %}<li class="{{ 'done' if loop.index0 < cur else 'now' if loop.index0 == cur else '' }}"><a href="/portal/how-we-work{{ phase_links[ph] }}"{% if loop.index0 == cur %} aria-current="step"{% endif %}><span>{% if loop.first %}1 · {% endif %}{{ ph }}</span></a></li>{% endfor %}</ol>
   {% if cur > 0 %}<p class="hww"><a href="/portal/how-we-work">How we work →</a></p>{% endif %}
  </div>
- <div class="ov">
-  <div class="ov-main">
-   {% if cur == 0 %}<div class="card intro"><span class="label">Step 1 · Start here</span>
+ <div class="ov{% if cur != 0 %} solo{% endif %}">
+  {% if cur == 0 %}<div class="ov-main">
+   <div class="card intro"><span class="label">Step 1 · Start here</span>
     <h3>Get to know how we work</h3>
     <p>Before discovery begins, take ten minutes to see what the journey looks like: the five phases from discovery to running and evolving your AI, what we need from your team, and what you get at each step.</p>
     <ol class="isteps">
@@ -1388,18 +1388,14 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
      <li><b>Bring your questions</b> to your first session with {{ con.name.split(' ')[0] }}.</li>
     </ol>
     <div class="iact"><a class="btn btn-p" href="/portal/how-we-work">How we work →</a><a class="btn btn-g" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></div>
-   </div>{% endif %}
-   <div class="card panel"><div class="hd"><h3>{{ icon('mail')|safe }}Messages{% if unread %} <span class="badge">{{ unread }} new</span>{% endif %}</h3><a href="#inbox">{{ 'Open inbox' if msgs else 'Write to ' ~ con.name.split(' ')[0] }}</a></div>
-    {% if msgs %}<ul class="rows mrows">{% for m in (msgs|reverse|list)[:3] %}<li><span class="tx"><b>{{ 'You' if m.sender == 'client' else (m.author or con.name) }}{% if m.subject %} · {{ m.subject }}{% endif %}</b><span>{{ m.body|replace('\n', ' ')|truncate(140) }}</span></span><span class="when">{{ m.at[:10] }}</span></li>{% endfor %}</ul>
-    {% else %}<p class="none">No messages yet. Updates from {{ con.name.split(' ')[0] }} will appear here, and you can write to us any time from your inbox.</p>{% endif %}</div>
-  </div>
+   </div>
+  </div>{% endif %}
   <aside class="ov-side"><div class="card cc"><span class="label">Your consultant</span>
    <div class="cc-h">{% if con.photo %}<img class="ph" src="/consultant-photo/{{ con.id }}" alt="" width="64" height="64">{% else %}<div class="ph" aria-hidden="true">{{ con.name[:1] }}</div>{% endif %}<div><b>{{ con.name }}</b><span>{{ con.title }}</span></div></div>
    <div class="cc-l">{% if con.email %}<a href="mailto:{{ con.email }}" aria-label="Email {{ con.name }}" title="{{ con.email }}">{{ icon('mail')|safe }}</a>{% endif %}{% if con.phone %}<a href="tel:{{ con.phone|replace(' ','') }}" aria-label="Call {{ con.name }}" title="{{ con.phone }}">{{ icon('phone')|safe }}</a>{% endif %}{% if con.linkedin %}<a href="{{ con.linkedin }}" target="_blank" rel="noopener" aria-label="{{ con.name }} on LinkedIn" title="LinkedIn">{{ icon('in')|safe }}</a>{% endif %}</div>
    <a class="btn btn-p" href="{{ con.cal_url }}" target="_blank" rel="noopener">{{ icon('cal')|safe }}Book a meeting</a>
    <a class="more" href="#consultant">About {{ con.name.split(' ')[0] }} →</a>
   </div>
-  {% if unread %}<a class="card mnew" href="#inbox">{{ icon('mail')|safe }}<span><b>{{ unread }} new message{{ '' if unread == 1 else 's' }}</b> from {{ con.name.split(' ')[0] }}. Open your inbox →</span></a>{% endif %}
   {% if c.consultant_note %}<div class="cnote" role="note" aria-label="Note from {{ con.name }}"><div class="nh">{% if con.photo %}<img class="av" src="/consultant-photo/{{ con.id }}" alt="" width="34" height="34">{% else %}<span class="av" aria-hidden="true">{{ con.name[:1] }}</span>{% endif %}<div><b>Note from {{ con.name.split(' ')[0] }}</b><span>Your consultant</span></div></div>
    <p>{{ c.consultant_note }}</p><a href="#inbox">Reply to {{ con.name.split(' ')[0] }} →</a></div>{% endif %}
   </aside>
