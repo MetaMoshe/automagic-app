@@ -6,7 +6,7 @@ claude.ai artifacts), adds a shared top navigation bar and a "more case
 studies" strip, rewrites artifact links to in-site paths, and writes the
 result to public/. Run:  python3 build.py
 """
-import pathlib, re, shutil
+import os, pathlib, re, shutil
 
 ROOT = pathlib.Path(__file__).parent
 SRC, OUT = ROOT / "src", ROOT / "public"
@@ -59,6 +59,7 @@ html{scroll-padding-top:calc(var(--am-nav-h) + 24px)}
 .am-card:hover{border-color:var(--navy)}
 .am-card b{display:block;font-family:var(--font-display);font-size:17px;color:var(--navy-deep);margin-bottom:4px}
 .am-card span{font-size:13.5px;color:var(--muted);line-height:1.45}
+.am-legal{font-size:13px;color:var(--muted);margin:18px 0 0}.am-legal a{color:var(--cyan-ink)}
 .am-card i{font-style:normal;display:block;margin-top:10px;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--cyan-ink)}
 </style>"""
 
@@ -78,7 +79,9 @@ def more(active):
         f'<i>{"Back to portfolio" if not s else "Read the case study"} →</i></a>'
         for s, _, label, _, blurb in PAGES if s != active and (s or active))
     title = "More case studies" if not active else "Keep exploring"
-    return f'<div class="wrap am-more"><h2>{title}</h2><div class="am-cards">{cards}</div></div>'
+    return (f'<div class="wrap am-more"><h2>{title}</h2><div class="am-cards">{cards}</div>'
+            f'<p class="am-legal">Confidential. Shared under the <a href="/terms/">Terms of Access</a>; '
+            f'please do not copy or share.</p></div>')
 
 
 DROP_HUNTER = ["business-case", "investment-summary", "next-steps", "p-summary", "p-engagement-model",
@@ -130,6 +133,14 @@ def clean_hunter(html):
     return html
 
 
+# Sends visitors who have not accepted the terms to the cover page first.
+GATE = ("<script>try{if(!localStorage.getItem('am-access'))location.replace('/welcome/?next='"
+        "+encodeURIComponent(location.pathname+location.search+location.hash))}catch(e){}</script>")
+
+# Standalone pages copied as-is (no nav, no gate).
+STATIC = [("welcome", "welcome.html"), ("terms", "terms.html")]
+
+
 def build():
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -142,6 +153,7 @@ def build():
         title = m.group(0) if m else f"<title>{label} · Automagic AI</title>"
         if m:
             html = html.replace(title, "", 1)
+        html = html.replace("<head>", "<head>" + GATE, 1)
         html = html.replace("</head>", title + CSS + "</head>", 1)
         if slug == "hunter":
             html = clean_hunter(html)
@@ -158,6 +170,13 @@ def build():
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")
         print(f"built {dest.relative_to(ROOT)} ({len(html)//1024} KB)")
+    endpoint = os.environ.get("FORM_ENDPOINT", "").strip()
+    for slug, src in STATIC:
+        html = (SRC / src).read_text(encoding="utf-8").replace("%%FORM_ENDPOINT%%", endpoint)
+        dest = OUT / slug / "index.html"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(html, encoding="utf-8")
+        print(f"built {dest.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
