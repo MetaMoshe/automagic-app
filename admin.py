@@ -1,6 +1,6 @@
 """Admin pages that sit in the left menu next to Clients and Consultants (portal.py):
 
-  /admin/inbox      everything new: Book a Call requests, client drive uploads, portfolio sign-ups
+  /admin/inbox      everything new: client messages, Book a Call requests, client drive uploads, portfolio sign-ups
   /admin            analytics (traffic, pages, referrers, places)
   /admin/leads      Lead CRM: Book a Call leads with a pipeline status, private notes, convert to client
   /admin/visitors   portfolio access emails and visitor activity by email
@@ -108,7 +108,8 @@ def admin_nav():
     t = seen()
     unread = (S.q("SELECT COUNT(*) FROM leads WHERE at > ?", (t,), one=True)[0]
               + S.q("SELECT COUNT(*) FROM access WHERE at > ?", (t,), one=True)[0]
-              + S.q("SELECT COUNT(*) FROM client_files WHERE uploaded_by = 'client' AND at > ?", (t,), one=True)[0])
+              + S.q("SELECT COUNT(*) FROM client_files WHERE uploaded_by = 'client' AND at > ?", (t,), one=True)[0]
+              + S.q("SELECT COUNT(*) FROM messages WHERE sender = 'client' AND at > ? AND read_admin IS NULL", (t,), one=True)[0])
     new_leads = S.q("SELECT COUNT(*) FROM leads WHERE COALESCE(status, 'New') = 'New'", one=True)[0]
     msgs = S.q("SELECT COUNT(*) FROM messages WHERE sender = 'client' AND read_admin IS NULL", one=True)[0]
     return {"admin_nav": {"inbox": unread, "leads": new_leads, "clients": msgs}}
@@ -119,7 +120,7 @@ def guard():
 
 
 # ---------------------------------------------------------------- inbox
-INBOX_TYPES = {"leads": "Book a Call", "uploads": "Client uploads", "access": "Portfolio sign-ups"}
+INBOX_TYPES = {"messages": "Client messages", "leads": "Book a Call", "uploads": "Client uploads", "access": "Portfolio sign-ups"}
 
 
 @bp.get("/admin/inbox")
@@ -133,6 +134,14 @@ def inbox():
         for lid, at, name, company, eng, notes in S.q("SELECT id, at, name, company, engagement, notes FROM leads ORDER BY at DESC LIMIT 200"):
             items.append({"at": at, "icon": "lead", "href": f"/admin/leads/{lid}", "title": f"Book a Call request from {name}" + (f", {company}" if company else ""),
                           "sub": " · ".join(x for x in (eng, (notes or "").replace("\n", " ")[:140]) if x) or "No message"})
+    if kind in ("", "messages"):
+        for cid, at, sender, author, subj, body, read, company in S.q(
+                "SELECT m.client_id, m.at, m.sender, m.author, m.subject, m.body, m.read_admin, c.company FROM messages m "
+                "JOIN clients c ON c.id = m.client_id ORDER BY m.at DESC LIMIT 200"):
+            mine = sender == "consultant"
+            title = (f"{author or 'You'} messaged {company}" if mine else f"Message from {author}, {company}" if author else f"Message from {company}")
+            items.append({"at": at, "icon": "sent" if mine else "msg", "href": f"/admin/clients/{cid}/inbox#latest", "title": title,
+                          "sub": " · ".join(x for x in (subj, (body or "").replace("\n", " ")[:140]) if x), "fresh": not mine and not read})
     if kind in ("", "uploads"):
         for cid, at, fname, company in S.q("SELECT f.client_id, f.at, f.name, c.company FROM client_files f JOIN clients c ON c.id = f.client_id "
                                            "WHERE f.uploaded_by = 'client' ORDER BY f.at DESC LIMIT 200"):
@@ -143,7 +152,7 @@ def inbox():
                           "sub": " · ".join(x for x in (page and f"Asked for {page}", ", ".join(y for y in (city, country) if y)) if x) or "Portfolio access"})
     items.sort(key=lambda i: i["at"], reverse=True)
     for i in items:
-        i["unread"] = i["at"] > t
+        i["unread"] = i.get("fresh", True) and i["at"] > t
     return render_template_string(INBOX, items=items[:200], kind=kind, types=INBOX_TYPES, note=request.args.get("note", ""))
 
 
@@ -330,11 +339,11 @@ def visitors():
 FOOT = U.FOOT
 
 INBOX = U.head("inbox", "Inbox") + """
-<div class="ph"><div><h2>Inbox</h2><p>Book a Call requests, files your clients upload and portfolio sign-ups, newest first.</p></div>
+<div class="ph"><div><h2>Inbox</h2><p>Client messages, Book a Call requests, files your clients upload and portfolio sign-ups, newest first.</p></div>
 {% if admin_nav.inbox %}<form method="post" action="/admin/inbox/read"><button class="ghost" type="submit">Mark all as read</button></form>{% endif %}</div>
 <nav class="chips" aria-label="Filter"><a href="/admin/inbox" class="{{ 'on' if not kind }}">All</a>{% for k, label in types.items() %}<a href="/admin/inbox?type={{ k }}" class="{{ 'on' if kind == k }}">{{ label }}</a>{% endfor %}</nav>
 {% if items %}<ul class="feed">{% for i in items %}<li class="{{ 'un' if i.unread }}"><a class="fi" href="{{ i.href }}"><span class="ico">{{ ico(i.icon)|safe }}</span><span class="tx"><b>{{ i.title }}</b><span>{{ i.sub }}</span></span><time datetime="{{ i.at }}">{{ i.at[:16]|replace('T',' ') }}</time></a></li>{% endfor %}</ul>
-{% else %}<div class="card empty">Nothing here yet. New Book a Call requests, client uploads and portfolio sign-ups will appear here.</div>{% endif %}
+{% else %}<div class="card empty">Nothing here yet. New client messages, Book a Call requests, client uploads and portfolio sign-ups will appear here.</div>{% endif %}
 <p class="mono" style="margin-top:14px;text-transform:none;letter-spacing:0">Times are UTC.</p>
 """ + FOOT
 

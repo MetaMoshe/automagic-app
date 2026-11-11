@@ -133,6 +133,8 @@ _I = {
     "menu": '<path d="M4 7h16M4 12h16M4 17h16"/>',
     "lead": '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
     "upload": '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
+    "msg": '<path d="M4 5h16v11H9l-5 4z"/>',
+    "sent": '<path d="m3 11 18-8-8 18-2-8z"/>',
     "key": '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/>',
 }
 

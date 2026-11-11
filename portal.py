@@ -1240,9 +1240,13 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .m .sj{margin:8px 0 0;font-weight:600}.m .bd{margin-top:6px;white-space:pre-wrap;word-wrap:break-word;line-height:1.6;color:var(--ink)}
 @media (max-width:640px){.m{max-width:100%}}
 .f textarea{width:100%;font:15px var(--fb);color:var(--ink);background:var(--bg);border:1.5px solid var(--line-2);border-radius:9px;padding:11px 12px;resize:vertical}.f textarea:focus{outline:none;border-color:var(--cyan)}
-.cnote{border-color:rgba(127,211,228,.35);background:linear-gradient(160deg,rgba(127,211,228,.08),var(--surface) 60%)}
-.cnote p{margin:10px 0 0;white-space:pre-line;font-size:15px;line-height:1.6}
-.cnote small{display:block;margin-top:10px;color:var(--faint);font-size:13px}
+.cnote{position:relative;background:#F7FAFC;color:#14202E;border:0;border-radius:14px;padding:22px 22px 18px;box-shadow:0 12px 32px rgba(0,0,0,.35);transform:rotate(-.4deg)}
+.cnote::before{content:"";position:absolute;top:-9px;left:50%;width:72px;height:18px;margin-left:-36px;background:rgba(127,211,228,.55);border-radius:3px;transform:rotate(2deg)}
+.cnote .nh{display:flex;align-items:center;gap:10px}
+.cnote .av{flex:none;width:34px;height:34px;border-radius:50%;object-fit:cover;background:#DCEFF4;color:#1B3B47;display:grid;place-items:center;font:600 15px var(--fd)}
+.cnote .nh b{display:block;font:600 15px var(--fd);color:#0A1018}.cnote .nh div span{display:block;font:500 10.5px var(--fm);letter-spacing:.1em;text-transform:uppercase;color:#5B6B7E}
+.cnote p{margin:14px 0 0;white-space:pre-line;font-size:15px;line-height:1.65;color:#22303F}
+.cnote a{display:inline-block;margin-top:14px;font-size:13.5px;font-weight:600;color:#1C6E80;text-decoration:none}.cnote a:hover{text-decoration:underline}
 .card.panel{padding:0;overflow:hidden}
 .panel .hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
 .panel .hd h3{font-size:17px;font-weight:600;display:flex;align-items:center;gap:10px}.panel .hd h3 svg{color:var(--cyan)}
@@ -1404,7 +1408,8 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
    <a class="more" href="#consultant">About {{ con.name.split(' ')[0] }} →</a>
   </div>
   {% if unread %}<a class="card mnew" href="#inbox">{{ icon('mail')|safe }}<span><b>{{ unread }} new message{{ '' if unread == 1 else 's' }}</b> from {{ con.name.split(' ')[0] }}. Open your inbox →</span></a>{% endif %}
-  {% if c.consultant_note %}<div class="card cnote"><span class="label">Note from {{ con.name.split(' ')[0] }}</span><p>{{ c.consultant_note }}</p></div>{% endif %}
+  {% if c.consultant_note %}<div class="cnote" role="note" aria-label="Note from {{ con.name }}"><div class="nh">{% if con.photo %}<img class="av" src="/consultant-photo/{{ con.id }}" alt="" width="34" height="34">{% else %}<span class="av" aria-hidden="true">{{ con.name[:1] }}</span>{% endif %}<div><b>Note from {{ con.name.split(' ')[0] }}</b><span>Your consultant</span></div></div>
+   <p>{{ c.consultant_note }}</p><a href="#inbox">Reply to {{ con.name.split(' ')[0] }} →</a></div>{% endif %}
   </aside>
  </div>
 </section>
