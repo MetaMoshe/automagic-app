@@ -8,7 +8,7 @@ Admin (session["admin"]):
 
 Clients (session["client_id"]):
   /login/                   Client Login page (static, built from src/login.html)
-  /portal/                  welcome, consultant, legal docs, invoices, drive, settings
+  /portal/                  welcome, consultant, project docs, invoices, drive, settings
 
 Files live on disk under $DATA_DIR/files/<client id>/ with random names; metadata is in
 the client_files table. Invoices come from Stripe when STRIPE_SECRET_KEY is set and the
@@ -712,7 +712,7 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
 </form>
 <div style="display:grid;gap:18px">
 {% if cid %}
- <div class="card"><p class="mono">Legal documents</p><p class="empty" style="margin:4px 0 12px;font-size:14px">Proposals, agreements and other documents the client sees under Legal docs.</p>
+ <div class="card"><p class="mono">Project documents</p><p class="empty" style="margin:4px 0 12px;font-size:14px">Proposals, agreements and other documents the client sees under Project docs.</p>
   <label class="f" for="cat">Document type</label><select id="cat">{% for d in doc_types %}<option>{{ d }}</option>{% endfor %}</select>
   <div class="drop" data-kind="legal" tabindex="0" role="button" style="margin-top:10px"><b>Drop files here</b> or click to choose<br><small>Up to 25 MB each</small></div>
   <ul class="files">{% for f in files if f.kind == 'legal' %}<li><span class="ic">{{ f.name|ext }}</span><span class="nm"><a href="/admin/clients/{{ cid }}/files/{{ f.id }}" target="_blank">{{ f.name }}</a><small>{{ f.category }} · {{ f.size|fsize }} · {{ f.at[:10] }}</small></span><button class="ghost" data-del="{{ f.id }}" type="button">Delete</button></li>{% else %}<li class="empty" style="display:block">No documents yet.</li>{% endfor %}</ul>
@@ -892,7 +892,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 <nav class="side" aria-label="Portal">
  <a href="#home" data-v="home">{{ icon('home')|safe }}Overview</a>
  <a href="#consultant" data-v="consultant">{{ icon('user')|safe }}Your Consultant</a>
- <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Legal docs</a>
+ <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Project docs</a>
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
  <a href="#drive" data-v="drive">{{ icon('drive')|safe }}Your Drive</a>
  <a href="#settings" data-v="settings">{{ icon('gear')|safe }}Settings</a>
@@ -918,7 +918,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
  <p>This is your private space with Automagic. Reach your consultant, find proposals and agreements, view and pay invoices, and share files with our team, all in one place.</p></div>
  <div class="ov-con"><div class="vh" style="margin:26px 0 12px"><span class="label">Your Consultant</span></div>{{ con_card() }}</div>
  <div class="tiles">
-  <a class="tile" href="#legal">{{ icon('doc', 22)|safe }}<b>Legal docs</b><span>{{ legal|length }} document{{ '' if legal|length == 1 else 's' }}</span></a>
+  <a class="tile" href="#legal">{{ icon('doc', 22)|safe }}<b>Project docs</b><span>{{ legal|length }} document{{ '' if legal|length == 1 else 's' }}</span></a>
   <a class="tile" href="#invoices">{{ icon('card', 22)|safe }}<b>Invoices</b><span>{% if inv %}{{ inv|selectattr('status','equalto','open')|list|length }} open{% else %}View and pay{% endif %}</span></a>
   <a class="tile" href="#drive">{{ icon('drive', 22)|safe }}<b>Your Drive</b><span>{{ drive|length }} file{{ '' if drive|length == 1 else 's' }}</span></a>
  </div>
@@ -930,7 +930,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 </section>
 
 <section class="view" id="v-legal" hidden>
- <div class="vh"><span class="label">Legal docs</span><h2>Proposals, agreements and contracts</h2><p>Documents we've shared with {{ c.company }}. Select one to open it.</p></div>
+ <div class="vh"><span class="label">Project docs</span><h2>Proposals, agreements and contracts</h2><p>Documents we've shared with {{ c.company }}. Select one to open it.</p></div>
  {% if legal %}{% for cat, items in legal|groupby('category') %}<div class="group"><h3>{{ cat or 'Other' }}</h3><div class="docs">
   {% for f in items %}<a class="doc" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener"><span class="fi {{ (f.name|ext)|lower }}"><i>{{ f.name|ext }}</i></span><span class="n">{{ f.name }}</span><small>{{ f.at[:10] }} · {{ f.size|fsize }}</small></a>{% endfor %}
  </div></div>{% endfor %}{% else %}<div class="empty">No documents yet. Proposals and agreements will appear here when we share them.</div>{% endif %}
