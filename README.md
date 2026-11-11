@@ -21,3 +21,10 @@ run `python3 build.py`, commit and push. Render redeploys on push.
 
 To add a case study: add its file to `src/`, add a row to `PAGES` in
 `build.py` (slug, file, nav label, artifact id, one-line blurb), and rebuild.
+
+## Client portal and CRM
+
+- `/admin/clients`: add, edit and delete clients, set their portal login, upload legal documents and drive files (drag and drop), link a Stripe customer.
+- `/admin/consultant`: the "Your Consultant" profile (photo, bio, email, phone, LinkedIn, booking link) shown to every client.
+- `/login/` → `/portal/`: client sign in (email + password) and the portal: overview, Your Consultant, Legal docs, Invoices, Your Drive, Settings.
+- Files are stored on the Render disk under `$DATA_DIR/files/`. Invoices need `STRIPE_SECRET_KEY` set in Render and a Stripe customer ID on the client.

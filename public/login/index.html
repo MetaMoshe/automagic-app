@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Client Login · Automagic</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#2C3C53; --band:#3C4F6A; --card:#FFFFFF; --ink:#1F2B3D; --muted:#5B687B; --line:#E1E5EA;
+  --navy:#3C4F6A; --navy-deep:#2C3C53; --cyan:#B6E6F0; --cyan-soft:#E3F5F9; --cyan-ink:#2D6F80;
+  --band-ink:#F4F7FA; --band-muted:#C5D0DC; --err:#B3261E;
+  --font-display:"Space Grotesk","Segoe UI",system-ui,sans-serif;
+  --font-body:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0B1018; --band:#18263A; --card:#161F2B; --ink:#E5EBF2; --muted:#9AA8B9; --line:#263243;
+  --navy:#A9BEDA; --navy-deep:#C9D6E8; --cyan:#7FCFE0; --cyan-soft:#16303A; --cyan-ink:#8FD8E8; --err:#F2B8B5; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0B1018; --band:#18263A; --card:#161F2B; --ink:#E5EBF2; --muted:#9AA8B9; --line:#263243;
+  --navy:#A9BEDA; --navy-deep:#C9D6E8; --cyan:#7FCFE0; --cyan-soft:#16303A; --cyan-ink:#8FD8E8; --err:#F2B8B5; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+html{overflow-x:hidden}
+body{min-height:100vh;min-height:100dvh;background:var(--bg);color:var(--band-ink);font-family:var(--font-body);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-rows:auto 1fr auto;position:relative;overflow:hidden;overflow:clip}
+body::before,body::after{content:"";position:absolute;border-radius:50%;border:64px solid transparent;pointer-events:none;transform:rotate(18deg)}
+body::before{right:-180px;top:-200px;width:640px;height:640px;border-top-color:rgba(182,230,240,.14);border-right-color:rgba(182,230,240,.08)}
+body::after{left:-260px;bottom:-320px;width:620px;height:620px;border-bottom-color:rgba(182,230,240,.07);border-left-color:rgba(182,230,240,.05)}
+.wrap{width:100%;max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));position:relative;z-index:1}
+header .wrap{display:flex;align-items:center;justify-content:space-between;padding-top:calc(22px + env(safe-area-inset-top,0px));padding-bottom:22px;gap:12px}
+.brand{white-space:nowrap;display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-weight:600;font-size:19px}
+.brand img{display:block;height:28px;width:auto}
+.crumb{font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--band-muted)}
+main .wrap{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:56px;align-items:center;padding-block:32px 56px}
+@media (max-width:880px){main .wrap{grid-template-columns:minmax(0,1fr);gap:28px;padding-block:8px 40px}
+  .card{order:2}.inside{order:3}.intro{display:contents}.intro>*{order:1}.inside{order:3}}
+@media (max-width:560px){.crumb{display:none}.card{padding:24px 20px 22px}button{font-size:15px}.lede{margin-bottom:4px}}
+.kicker{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan);margin:0 0 18px}
+.kicker::before{content:"";width:8px;height:8px;background:var(--cyan)}
+h1{font-family:var(--font-display);font-weight:600;font-size:clamp(36px,5.6vw,62px);line-height:1.03;letter-spacing:-.025em;margin:0 0 18px;text-wrap:balance}
+.lede{font-size:clamp(17px,1.7vw,19px);color:var(--band-muted);max-width:52ch;margin:0 0 30px}
+.inside{list-style:none;margin:0;padding:0;display:grid;gap:10px;max-width:520px}
+.inside li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;align-items:baseline;padding:12px 0;border-top:1px solid rgba(255,255,255,.12)}
+.inside b{font-family:var(--font-display);font-weight:600;font-size:16px;color:var(--band-ink)}
+.inside span{font-size:14px;color:var(--band-muted)}
+.inside i{font-style:normal;font-family:var(--font-mono);font-size:11.5px;color:var(--cyan);grid-row:span 2;padding-top:3px}
+.card{background:var(--card);color:var(--ink);border-radius:16px;padding:30px 28px 26px;box-shadow:0 24px 60px rgba(5,10,20,.35);border:1px solid var(--line)}
+.card h2{font-family:var(--font-display);font-weight:600;font-size:24px;letter-spacing:-.01em;margin:0 0 6px;color:var(--navy-deep)}
+.card p.sub{margin:0 0 22px;font-size:14.5px;color:var(--muted)}
+label.f{display:block;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+input[type=email],input[type=password]{width:100%;font:16px var(--font-body);color:var(--ink);background:var(--card);border:1.5px solid var(--line);border-radius:10px;padding:13px 14px;outline:none}
+input[type=email]:focus,input[type=password]:focus{border-color:var(--navy);box-shadow:0 0 0 3px var(--cyan-soft)}
+.check{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;align-items:start;margin:18px 0 6px;font-size:14px;line-height:1.5;color:var(--ink);cursor:pointer}
+.check input{width:18px;height:18px;margin:2px 0 0;accent-color:var(--navy)}
+.check a{color:var(--cyan-ink);font-weight:500}
+.err{min-height:20px;font-size:13px;color:var(--err);margin:6px 0 10px}
+button{width:100%;font:600 16px var(--font-body);color:#fff;background:var(--navy);border:0;border-radius:999px;padding:14px 20px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px}
+:root[data-theme="dark"] button{color:#0B1018}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) button{color:#0B1018}}
+button:hover{filter:brightness(1.08)}
+button:disabled{opacity:.6;cursor:default}
+button svg{width:16px;height:16px}
+.fine{font-size:12.5px;color:var(--muted);margin:14px 0 0;text-align:center}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-block:18px calc(22px + env(safe-area-inset-bottom,0px));font-size:13px;color:var(--band-muted);border-top:1px solid rgba(255,255,255,.1)}
+footer a{color:inherit}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <a class="brand" href="/" style="color:inherit;text-decoration:none"><img src="/brand/wordmark-light.svg" alt="Automagic" width="140" height="29"></a>
+  <span class="crumb">Client portal · Secure sign in</span>
+</div></header>
+
+<main><div class="wrap">
+  <section class="intro">
+    <p class="kicker">Client portal</p>
+    <h1>Welcome back</h1>
+    <p class="lede">Sign in to your private Automagic portal to reach your consultant, find proposals and agreements, pay invoices and share files with our team.</p>
+    <ul class="inside" aria-label="In your portal">
+      <li><i>01</i><b>Your Consultant</b><span>Contact details and a direct link to book a meeting</span></li>
+      <li><i>02</i><b>Legal docs and invoices</b><span>Proposals, agreements and invoices, ready to view and pay</span></li>
+      <li><i>03</i><b>Your Drive</b><span>A private space to share files with the Automagic team</span></li>
+    </ul>
+  </section>
+
+  <form class="card" id="gate" novalidate>
+    <h2>Client login</h2>
+    <p class="sub">Sign in with the email and password we sent you.</p>
+    <label class="f" for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="you@company.com" required>
+    <label class="f" for="password" style="margin-top:16px">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <p class="err" id="err" role="alert" aria-live="polite"></p>
+    <button type="submit" id="go">Sign in
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+    <p class="fine">Forgotten your password? Email <a href="mailto:hello@automagic.agency" style="color:inherit">hello@automagic.agency</a> and we'll reset it.</p>
+  </form>
+</div></main>
+
+<footer><div class="wrap"><span>© 2026 Automagic AI</span><span><a href="/terms/">Terms and privacy</a></span></div></footer>
+
+<script>
+(function(){
+  var f=document.getElementById('gate'), em=document.getElementById('email'), pw=document.getElementById('password'),
+      err=document.getElementById('err'), go=document.getElementById('go');
+  f.addEventListener('submit',function(e){
+    e.preventDefault();
+    var v=em.value.trim();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)){err.textContent='Please enter a valid email address.';em.focus();return}
+    if(!pw.value){err.textContent='Please enter your password.';pw.focus();return}
+    err.textContent=''; go.disabled=true;
+    fetch('/portal/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:v,password:pw.value}),credentials:'same-origin'})
+      .then(function(r){return r.json().then(function(j){return {ok:r.ok&&j.ok,j:j}})})
+      .then(function(res){ if(!res.ok) throw new Error((res.j&&res.j.error)||''); location.replace(res.j.next||'/portal/'); })
+      .catch(function(x){ err.textContent=(x&&x.message)||'Something went wrong. Please try again.'; go.disabled=false; pw.select(); });
+  });
+})();
+</script>
+<script>(function(){try{var k='am-vid',v=localStorage.getItem(k);if(!v){v=Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem(k,v)}}catch(e){v=''}var d=JSON.stringify({path:location.pathname,ref:document.referrer,vid:v});if(navigator.sendBeacon)navigator.sendBeacon('/api/event',d);else fetch('/api/event',{method:'POST',body:d,keepalive:true}).catch(function(){})})()</script></body>
+</html>

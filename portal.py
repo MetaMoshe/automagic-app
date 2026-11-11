@@ -1,0 +1,922 @@
+"""Client portal and admin CRM.
+
+Admin (session["admin"]):
+  /admin/clients            list, add, edit and delete clients (a simple CRM)
+  /admin/clients/<id>       client record, portal login, Stripe link, files (drag and drop)
+  /admin/consultant         the "Your Consultant" profile shown to every client
+
+Clients (session["client_id"]):
+  /login/                   Client Login page (static, built from src/login.html)
+  /portal/                  welcome, consultant, legal docs, invoices, drive, settings
+
+Files live on disk under $DATA_DIR/files/<client id>/ with random names; metadata is in
+the client_files table. Invoices come from Stripe when STRIPE_SECRET_KEY is set and the
+client has a Stripe customer id.
+"""
+import base64, json, mimetypes, os, secrets, sqlite3, time, urllib.error, urllib.parse, urllib.request
+from collections import defaultdict
+
+from flask import Blueprint, abort, jsonify, redirect, render_template_string, request, send_file, session
+from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
+
+import server as S
+
+bp = Blueprint("portal", __name__)
+
+FILES_DIR = os.path.join(S.DATA_DIR, "files")
+MAX_FILE = 25 * 1024 * 1024
+STRIPE_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+CAL_URL = "https://cal.com/moshe-david/ai-transformation-discovery?overlayCalendar=true"
+STATUSES = ["Lead", "Active", "Paused", "Past"]
+DOC_TYPES = ["Proposal", "Agreement", "Statement of work", "NDA", "Report", "Other"]
+INLINE = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"}
+CLIENT_FIELDS = ["company", "website", "industry", "country", "address", "status", "engagement",
+                 "contact_name", "contact_title", "contact_email", "contact_phone", "contact_linkedin",
+                 "notes", "stripe_customer_id"]
+SELF_FIELDS = ["contact_name", "contact_title", "contact_phone", "contact_linkedin"]
+CONSULTANT_DEFAULT = {"name": "Moshe David", "title": "Founder, Automagic AI", "email": "hello@automagic.agency",
+                      "phone": "", "linkedin": "", "cal_url": CAL_URL,
+                      "bio": "I lead every Automagic engagement personally, from discovery to the tools your team uses every day. "
+                             "Reach out any time with questions, ideas or anything that isn't working.",
+                      "photo": ""}
+
+
+# ---------------------------------------------------------------- database
+def init():
+    pk = "SERIAL PRIMARY KEY" if S.DATABASE_URL else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    cols = ", ".join(f"{c} TEXT" for c in CLIENT_FIELDS)
+    with S.app.app_context():
+        for sql in (
+            f"CREATE TABLE IF NOT EXISTS clients (id {pk}, created TEXT NOT NULL, updated TEXT, {cols}, "
+            "password_hash TEXT, portal_enabled INTEGER DEFAULT 0, session_ver INTEGER DEFAULT 1, last_login TEXT)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS clients_email ON clients (contact_email)",
+            f"CREATE TABLE IF NOT EXISTS client_files (id {pk}, client_id INTEGER NOT NULL, at TEXT NOT NULL, kind TEXT NOT NULL, "
+            "category TEXT, name TEXT NOT NULL, stored TEXT NOT NULL, size INTEGER, mime TEXT, uploaded_by TEXT)",
+            "CREATE INDEX IF NOT EXISTS client_files_client ON client_files (client_id)",
+            "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)",
+        ):
+            S.q(sql)
+        if not S.DATABASE_URL:
+            S.db().commit()
+    os.makedirs(FILES_DIR, exist_ok=True)
+
+
+def commit():
+    if not S.DATABASE_URL:
+        S.db().commit()
+
+
+def client_row(cid):
+    r = S.q(f"SELECT id, created, updated, {', '.join(CLIENT_FIELDS)}, password_hash, portal_enabled, session_ver, last_login "
+            "FROM clients WHERE id = ?", (cid,), one=True)
+    if not r:
+        return None
+    keys = ["id", "created", "updated"] + CLIENT_FIELDS + ["password_hash", "portal_enabled", "session_ver", "last_login"]
+    return dict(zip(keys, r))
+
+
+def files_for(cid, kind=None):
+    sql = "SELECT id, at, kind, category, name, size, mime, uploaded_by FROM client_files WHERE client_id = ?"
+    args = [cid]
+    if kind:
+        sql += " AND kind = ?"
+        args.append(kind)
+    rows = S.q(sql + " ORDER BY at DESC, id DESC", tuple(args))
+    return [dict(zip(["id", "at", "kind", "category", "name", "size", "mime", "uploaded_by"], r)) for r in rows]
+
+
+def consultant():
+    c = dict(CONSULTANT_DEFAULT)
+    for k, v in S.q("SELECT k, v FROM settings WHERE k LIKE 'consultant.%'"):
+        c[k.split(".", 1)[1]] = v or ""
+    return c
+
+
+def set_setting(k, v):
+    if S.DATABASE_URL:
+        S.q("INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v", (k, v))
+    else:
+        S.q("INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)", (k, v))
+
+
+# ---------------------------------------------------------------- request guards
+@bp.before_app_request
+def guards():
+    p = request.path
+    if request.method == "POST" and (p.startswith("/admin") or p.startswith("/portal")):
+        origin = request.headers.get("Origin")
+        if origin and urllib.parse.urlparse(origin).netloc != request.host:
+            abort(403)
+    uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p in ("/portal/api/drive", "/admin/consultant")
+    limit = MAX_FILE + 1024 * 1024 if uploads else 64 * 1024
+    if (request.content_length or 0) > limit:
+        abort(413)
+
+
+def admin_only():
+    r = S.admin_required()
+    if r:
+        if request.path.startswith("/admin/") and request.method == "POST":
+            abort(401)
+        return r
+    return None
+
+
+def current_client():
+    cid, ver = session.get("client_id"), session.get("client_ver")
+    if not cid:
+        return None
+    c = client_row(cid)
+    if not c or not c["portal_enabled"] or c["session_ver"] != ver:
+        session.pop("client_id", None)
+        return None
+    return c
+
+
+# ---------------------------------------------------------------- files
+def save_upload(cid, f, kind, category, by):
+    name = (f.filename or "file").replace("\\", "/").rsplit("/", 1)[-1][:200] or "file"
+    data = f.read(MAX_FILE + 1)
+    if len(data) > MAX_FILE:
+        return None, f"{name} is larger than 25 MB."
+    if not data:
+        return None, f"{name} is empty."
+    ext = os.path.splitext(secure_filename(name))[1][:12].lower()
+    stored = secrets.token_hex(16) + ext
+    folder = os.path.join(FILES_DIR, str(int(cid)))
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, stored), "wb") as out:
+        out.write(data)
+    mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    S.q("INSERT INTO client_files (client_id, at, kind, category, name, stored, size, mime, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (cid, S.now(), kind, category, name, stored, len(data), mime, by))
+    commit()
+    return name, None
+
+
+def send_stored(cid, fid):
+    r = S.q("SELECT name, stored, mime FROM client_files WHERE id = ? AND client_id = ?", (fid, cid), one=True)
+    if not r:
+        abort(404)
+    path = os.path.join(FILES_DIR, str(int(cid)), r[1])
+    if not os.path.isfile(path):
+        abort(404)
+    inline = r[2] in INLINE and request.args.get("dl") != "1"
+    resp = send_file(path, mimetype=r[2] if inline else "application/octet-stream", as_attachment=not inline,
+                     download_name=r[0], max_age=0)
+    resp.headers["Cache-Control"] = "private, no-store"
+    return resp
+
+
+def delete_stored(cid, fid):
+    r = S.q("SELECT stored FROM client_files WHERE id = ? AND client_id = ?", (fid, cid), one=True)
+    if not r:
+        return False
+    try:
+        os.remove(os.path.join(FILES_DIR, str(int(cid)), r[0]))
+    except OSError:
+        pass
+    S.q("DELETE FROM client_files WHERE id = ? AND client_id = ?", (fid, cid))
+    commit()
+    return True
+
+
+# ---------------------------------------------------------------- Stripe
+def stripe(method, path, params=None):
+    if not STRIPE_KEY:
+        raise RuntimeError("Stripe is not connected.")
+    data = urllib.parse.urlencode(params or {}, doseq=True).encode() if method == "POST" else None
+    url = "https://api.stripe.com/v1/" + path
+    if method == "GET" and params:
+        url += "?" + urllib.parse.urlencode(params, doseq=True)
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": "Basic " + base64.b64encode((STRIPE_KEY + ":").encode()).decode()})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read()).get("error", {}).get("message")
+        except Exception:
+            msg = None
+        raise RuntimeError(msg or f"Stripe returned {e.code}.")
+
+
+_inv_cache = {}
+
+
+def invoices(customer):
+    if not (STRIPE_KEY and customer):
+        return None, None
+    hit = _inv_cache.get(customer)
+    if hit and hit[0] > time.time() - 60:
+        return hit[1], None
+    try:
+        data = stripe("GET", "invoices", {"customer": customer, "limit": 30})
+    except Exception as e:
+        return [], str(e)
+    out = []
+    for i in data.get("data", []):
+        if i.get("status") == "draft":
+            continue
+        out.append({"number": i.get("number") or i.get("id"), "created": time.strftime("%d %b %Y", time.gmtime(i.get("created", 0))),
+                    "due": time.strftime("%d %b %Y", time.gmtime(i["due_date"])) if i.get("due_date") else "",
+                    "amount": f"{(i.get('total') or 0) / 100:,.2f} {str(i.get('currency', '')).upper()}",
+                    "due_amount": i.get("amount_remaining") or 0, "status": i.get("status") or "",
+                    "url": i.get("hosted_invoice_url") or "", "pdf": i.get("invoice_pdf") or ""})
+    _inv_cache[customer] = (time.time(), out)
+    return out, None
+
+
+# ---------------------------------------------------------------- admin CRM
+@bp.get("/admin/clients")
+def admin_clients():
+    r = admin_only()
+    if r:
+        return r
+    rows = S.q("SELECT c.id, c.company, c.contact_name, c.contact_email, c.status, c.engagement, c.portal_enabled, c.last_login, "
+               "(SELECT COUNT(*) FROM client_files f WHERE f.client_id = c.id) FROM clients c ORDER BY LOWER(c.company)")
+    counts = defaultdict(int)
+    for row in rows:
+        counts[row[4] or "Lead"] += 1
+    return render_template_string(ADMIN_LIST, rows=rows, counts=counts, statuses=STATUSES, stripe=bool(STRIPE_KEY))
+
+
+@bp.route("/admin/clients/new", methods=["GET", "POST"])
+@bp.route("/admin/clients/<int:cid>", methods=["GET", "POST"])
+def admin_client(cid=None):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid) if cid else {k: "" for k in ["id"] + CLIENT_FIELDS} | {"status": "Active", "portal_enabled": 0, "password_hash": None}
+    if cid and not c:
+        abort(404)
+    err, note, new_pw = "", request.args.get("saved") and "Saved.", ""
+    if request.method == "POST":
+        f = request.form
+        vals = {k: S.clip(f.get(k), 4000 if k in ("notes", "address") else 300) for k in CLIENT_FIELDS}
+        vals["contact_email"] = vals["contact_email"].lower()
+        vals["status"] = vals["status"] if vals["status"] in STATUSES else "Active"
+        vals["engagement"] = vals["engagement"] if vals["engagement"] in S.TYPES else ""
+        portal = 1 if f.get("portal_enabled") else 0
+        pw = f.get("password", "").strip()
+        if f.get("generate"):
+            pw = new_pw = "-".join(secrets.token_urlsafe(4) for _ in range(3))
+        c.update(vals)
+        c["portal_enabled"] = portal
+        if not vals["company"]:
+            err = "Add the company name."
+        elif vals["contact_email"] and not S.EMAIL_RE.match(vals["contact_email"]):
+            err = "The contact email doesn't look right."
+        elif portal and not vals["contact_email"]:
+            err = "Portal access needs a contact email, which is the client's login."
+        elif pw and len(pw) < 10:
+            err = "Use a password of at least 10 characters."
+        elif portal and not pw and not c.get("password_hash"):
+            err = "Set a password (or generate one) to turn on portal access."
+        else:
+            dup = S.q("SELECT id FROM clients WHERE contact_email = ? AND id != ?", (vals["contact_email"], cid or 0), one=True) if vals["contact_email"] else None
+            if dup:
+                err = "Another client already uses that contact email."
+        if not err:
+            sets = ", ".join(f"{k} = ?" for k in CLIENT_FIELDS)
+            args = [vals[k] or None if k == "contact_email" else vals[k] for k in CLIENT_FIELDS]
+            if cid:
+                S.q(f"UPDATE clients SET {sets}, updated = ?, portal_enabled = ? WHERE id = ?", (*args, S.now(), portal, cid))
+            else:
+                S.q(f"INSERT INTO clients (created, updated, {', '.join(CLIENT_FIELDS)}, portal_enabled) VALUES (?, ?, {', '.join('?' * len(CLIENT_FIELDS))}, ?)",
+                    (S.now(), S.now(), *args, portal))
+                cid = S.q("SELECT id FROM clients WHERE company = ? ORDER BY id DESC", (vals["company"],), one=True)[0]
+            if pw:
+                S.q("UPDATE clients SET password_hash = ?, session_ver = COALESCE(session_ver, 1) + 1 WHERE id = ?",
+                    (generate_password_hash(pw), cid))
+            commit()
+            if new_pw:
+                session["new_pw"] = [cid, new_pw]
+            return redirect(f"/admin/clients/{cid}?saved=1")
+    shown = session.pop("new_pw", None) if request.method == "GET" else None
+    if shown and shown[0] == cid:
+        new_pw, note = shown[1], "Saved. Send the client their login below; this password is shown only once."
+    files = files_for(cid) if cid else []
+    inv, inv_err = invoices(c.get("stripe_customer_id")) if cid else (None, None)
+    return render_template_string(ADMIN_CLIENT, c=c, cid=cid, err=err, note=note, new_pw=new_pw, files=files,
+                                  statuses=STATUSES, types=S.TYPES, doc_types=DOC_TYPES, stripe=bool(STRIPE_KEY),
+                                  inv=inv, inv_err=inv_err, login_url=request.host_url.rstrip("/") + "/login/")
+
+
+@bp.post("/admin/clients/<int:cid>/delete")
+def admin_client_delete(cid):
+    r = admin_only()
+    if r:
+        return r
+    if request.form.get("confirm") != "DELETE":
+        return redirect(f"/admin/clients/{cid}")
+    for f in files_for(cid):
+        delete_stored(cid, f["id"])
+    try:
+        os.rmdir(os.path.join(FILES_DIR, str(int(cid))))
+    except OSError:
+        pass
+    S.q("DELETE FROM clients WHERE id = ?", (cid,))
+    commit()
+    return redirect("/admin/clients")
+
+
+@bp.post("/admin/clients/<int:cid>/stripe")
+def admin_client_stripe(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid) or abort(404)
+    try:
+        cust = stripe("POST", "customers", {"name": c["company"], "email": c["contact_email"] or "",
+                                            "metadata[automagic_client_id]": str(cid)})
+        S.q("UPDATE clients SET stripe_customer_id = ? WHERE id = ?", (cust["id"], cid))
+        commit()
+    except Exception as e:
+        return redirect(f"/admin/clients/{cid}?stripe_error=" + urllib.parse.quote(str(e)))
+    return redirect(f"/admin/clients/{cid}?saved=1")
+
+
+@bp.post("/admin/clients/<int:cid>/files")
+def admin_upload(cid):
+    r = admin_only()
+    if r:
+        return r
+    if not client_row(cid):
+        abort(404)
+    kind = "legal" if request.form.get("kind") == "legal" else "drive"
+    cat = request.form.get("category") if request.form.get("category") in DOC_TYPES else ("Other" if kind == "legal" else None)
+    saved, errors = [], []
+    for f in request.files.getlist("file"):
+        name, e = save_upload(cid, f, kind, cat, "admin")
+        (saved if name else errors).append(name or e)
+    return jsonify(ok=not errors, saved=saved, errors=errors)
+
+
+@bp.get("/admin/clients/<int:cid>/files/<int:fid>")
+def admin_file(cid, fid):
+    r = admin_only()
+    if r:
+        return r
+    return send_stored(cid, fid)
+
+
+@bp.post("/admin/clients/<int:cid>/files/<int:fid>/delete")
+def admin_file_delete(cid, fid):
+    r = admin_only()
+    if r:
+        return r
+    return jsonify(ok=delete_stored(cid, fid))
+
+
+@bp.route("/admin/consultant", methods=["GET", "POST"])
+def admin_consultant():
+    r = admin_only()
+    if r:
+        return r
+    note = ""
+    if request.method == "POST":
+        for k in ("name", "title", "email", "phone", "linkedin", "cal_url", "bio"):
+            set_setting("consultant." + k, S.clip(request.form.get(k), 3000 if k == "bio" else 300))
+        photo = request.files.get("photo")
+        if photo and photo.filename:
+            mime = mimetypes.guess_type(photo.filename)[0]
+            data = photo.read(5 * 1024 * 1024 + 1)
+            if mime in ("image/png", "image/jpeg", "image/webp") and 0 < len(data) <= 5 * 1024 * 1024:
+                folder = os.path.join(FILES_DIR, "consultant")
+                os.makedirs(folder, exist_ok=True)
+                old = consultant().get("photo")
+                name = secrets.token_hex(8) + mimetypes.guess_extension(mime).replace(".jpe", ".jpg")
+                with open(os.path.join(folder, name), "wb") as out:
+                    out.write(data)
+                set_setting("consultant.photo", name)
+                if old:
+                    try:
+                        os.remove(os.path.join(folder, os.path.basename(old)))
+                    except OSError:
+                        pass
+            else:
+                note = "Photo not saved: use a PNG, JPG or WebP under 5 MB. "
+        commit()
+        note += "Saved."
+    return render_template_string(ADMIN_CONSULTANT, c=consultant(), note=note)
+
+
+@bp.get("/consultant-photo")
+def consultant_photo():
+    if not (session.get("admin") or current_client()):
+        abort(404)
+    name = os.path.basename(consultant().get("photo") or "")
+    path = os.path.join(FILES_DIR, "consultant", name)
+    if not name or not os.path.isfile(path):
+        abort(404)
+    return send_file(path, max_age=300)
+
+
+# ---------------------------------------------------------------- client login
+_fails = defaultdict(list)
+
+
+@bp.post("/portal/api/login")
+def client_login():
+    d = request.get_json(silent=True) or {}
+    email, pw = S.clip(d.get("email"), 254).lower(), str(d.get("password") or "")[:200]
+    key = S.ip_hash()
+    _fails[key] = [t for t in _fails[key] if t > time.time() - 900]
+    if len(_fails[key]) >= 8:
+        return jsonify(ok=False, error="Too many attempts. Try again in 15 minutes."), 429
+    r = S.q("SELECT id, password_hash, portal_enabled, session_ver FROM clients WHERE contact_email = ?", (email,), one=True) if email else None
+    if not r or not r[1] or not r[2] or not check_password_hash(r[1], pw):
+        _fails[key].append(time.time())
+        return jsonify(ok=False, error="That email and password don't match an active client login."), 401
+    session.clear()
+    session.permanent = True
+    session["client_id"], session["client_ver"] = r[0], r[3]
+    S.q("UPDATE clients SET last_login = ? WHERE id = ?", (S.now(), r[0]))
+    commit()
+    return jsonify(ok=True, next="/portal/")
+
+
+@bp.post("/portal/logout")
+def client_logout():
+    session.pop("client_id", None)
+    session.pop("client_ver", None)
+    return redirect("/login/")
+
+
+# ---------------------------------------------------------------- client portal
+@bp.get("/portal")
+@bp.get("/portal/")
+def portal():
+    c = current_client()
+    if not c:
+        return redirect("/login/")
+    inv, inv_err = invoices(c["stripe_customer_id"])
+    first = (c["contact_name"] or "").split(" ")[0] or c["company"]
+    return render_template_string(PORTAL, c=c, first=first, con=consultant(), legal=files_for(c["id"], "legal"),
+                                  drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
+                                  note=request.args.get("note", "")[:200])
+
+
+@bp.get("/portal/files/<int:fid>")
+def portal_file(fid):
+    c = current_client()
+    if not c:
+        abort(404)
+    return send_stored(c["id"], fid)
+
+
+@bp.post("/portal/api/drive")
+def portal_upload():
+    c = current_client()
+    if not c:
+        abort(401)
+    saved, errors = [], []
+    for f in request.files.getlist("file"):
+        name, e = save_upload(c["id"], f, "drive", None, "client")
+        (saved if name else errors).append(name or e)
+    return jsonify(ok=not errors, saved=saved, errors=errors)
+
+
+@bp.post("/portal/api/drive/<int:fid>/delete")
+def portal_delete(fid):
+    c = current_client()
+    if not c:
+        abort(401)
+    r = S.q("SELECT id FROM client_files WHERE id = ? AND client_id = ? AND kind = 'drive' AND uploaded_by = 'client'",
+            (fid, c["id"]), one=True)
+    return jsonify(ok=bool(r) and delete_stored(c["id"], fid))
+
+
+@bp.post("/portal/billing")
+def portal_billing():
+    c = current_client()
+    if not c:
+        return redirect("/login/")
+    try:
+        s = stripe("POST", "billing_portal/sessions", {"customer": c["stripe_customer_id"],
+                                                      "return_url": request.host_url.rstrip("/") + "/portal/#invoices"})
+        return redirect(s["url"])
+    except Exception as e:
+        return redirect("/portal/?note=" + urllib.parse.quote("Billing settings are not available right now: " + str(e)) + "#invoices")
+
+
+@bp.post("/portal/settings")
+def portal_settings():
+    c = current_client()
+    if not c:
+        return redirect("/login/")
+    f = request.form
+    if f.get("action") == "profile":
+        vals = [S.clip(f.get(k), 300) for k in SELF_FIELDS]
+        S.q(f"UPDATE clients SET {', '.join(k + ' = ?' for k in SELF_FIELDS)}, updated = ? WHERE id = ?", (*vals, S.now(), c["id"]))
+        commit()
+        return redirect("/portal/?note=Profile+saved.#settings")
+    if f.get("action") == "password":
+        if not check_password_hash(c["password_hash"] or "", f.get("current", "")):
+            return redirect("/portal/?note=Your+current+password+is+not+right.#settings")
+        new = f.get("new", "")
+        if len(new) < 10 or new != f.get("confirm", ""):
+            return redirect("/portal/?note=New+passwords+must+match+and+be+at+least+10+characters.#settings")
+        S.q("UPDATE clients SET password_hash = ?, session_ver = session_ver + 1 WHERE id = ?", (generate_password_hash(new), c["id"]))
+        commit()
+        session["client_ver"] = c["session_ver"] + 1
+        return redirect("/portal/?note=Password+changed.+Other+devices+are+signed+out.#settings")
+    if f.get("action") == "signout_all":
+        S.q("UPDATE clients SET session_ver = session_ver + 1 WHERE id = ?", (c["id"],))
+        commit()
+        session["client_ver"] = c["session_ver"] + 1
+        return redirect("/portal/?note=Signed+out+of+all+other+devices.#settings")
+    return redirect("/portal/#settings")
+
+
+# ---------------------------------------------------------------- templates
+def size(n):
+    n = n or 0
+    return f"{n / 1048576:.1f} MB" if n >= 1048576 else f"{max(1, round(n / 1024))} KB"
+
+
+def ext(name):
+    e = os.path.splitext(name or "")[1][1:].upper()
+    return e[:4] or "FILE"
+
+
+S.app.jinja_env.filters["fsize"] = size
+S.app.jinja_env.filters["ext"] = ext
+
+ADMIN_HEAD = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block t %}Clients{% endblock %} · Automagic Admin</title><meta name="robots" content="noindex">""" + S.FONTS + "<style>" + S.BASE_CSS + """
+header{background:var(--band);border-bottom:1px solid var(--line)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;height:60px}
+header h1{font-size:18px;margin:0}header form{margin:0}
+nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:24px 0 8px}
+nav.tabs a{padding:7px 14px;border-radius:999px;border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:14px}
+nav.tabs a:hover,nav.tabs a.on{color:var(--ink);border-color:var(--cyan)}
+section{margin:24px 0}h2{font-size:22px;margin:0 0 12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}th{font:500 11px "IBM Plex Mono",monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;background:var(--cyan-soft);white-space:nowrap}
+td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:middle}
+tr.rowlink{cursor:pointer}tr.rowlink:hover td{background:rgba(127,207,224,.05)}
+.pill{font:500 11px "IBM Plex Mono",monospace;padding:2px 8px;border-radius:999px;background:var(--cyan-soft);color:var(--cyan);white-space:nowrap}
+.pill.off{background:transparent;border:1px solid var(--line);color:var(--muted)}
+.empty{color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}
+.grid .full{grid-column:1/-1}
+@media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+label.f{display:block;font:500 11px "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+input[type=text],input[type=email],input[type=url],input[type=tel],input[type=password],select,textarea{width:100%;font:15px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px}
+textarea{min-height:110px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.check{display:flex;gap:10px;align-items:center;font-size:14.5px}
+.err{color:#F2B8B5}.ok{color:#7FD3A6}
+.danger{background:transparent;color:#F2B8B5;border:1px solid #5a2a2a}
+.secret{font:500 16px "IBM Plex Mono",monospace;background:var(--bg);border:1px dashed var(--cyan);border-radius:10px;padding:12px 14px;user-select:all}
+.drop{border:1.5px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);transition:border-color .15s,background .15s;cursor:pointer}
+.drop.over{border-color:var(--cyan);background:rgba(127,207,224,.06);color:var(--ink)}
+.drop b{color:var(--ink)}
+.files{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
+.files li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.files .ic{font:600 10px "IBM Plex Mono",monospace;width:38px;height:44px;border-radius:5px;display:grid;place-items:end center;padding-bottom:6px;background:var(--cyan-soft);color:var(--cyan)}
+.files .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.files .nm small{display:block;color:var(--muted);font-size:12.5px}
+.files button{padding:6px 12px;font-size:13px}
+.split{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:960px){.split{grid-template-columns:minmax(0,1fr)}}
+</style></head><body>
+<header><div class="wrap"><h1>Automagic · Admin</h1><form method="post" action="/admin/logout"><button class="ghost" type="submit">Sign out</button></form></div></header>
+<main class="wrap"><nav class="tabs" aria-label="Admin"><a href="/admin">Analytics</a><a href="/admin/clients" class="{% block navc %}{% endblock %}">Clients</a><a href="/admin/consultant" class="{% block navp %}{% endblock %}">Consultant profile</a><a href="/portal/" target="_blank">Client portal</a></nav>
+"""
+ADMIN_FOOT = "</main></body></html>"
+
+ADMIN_LIST = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
+<section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Clients</h2><a class="btn" href="/admin/clients/new">Add client</a></div>
+<p class="mono" style="margin:10px 0 16px;text-transform:none;letter-spacing:0">{% for s in statuses %}{{ s }}: {{ counts[s] }}{% if not loop.last %} · {% endif %}{% endfor %}{% if not stripe %} · Stripe not connected (set STRIPE_SECRET_KEY){% endif %}</p>
+{% if rows %}<div class="tw"><table><thead><tr><th>Company</th><th>Contact</th><th>Status</th><th>Engagement</th><th>Portal</th><th>Files</th><th>Last login (UTC)</th></tr></thead><tbody>
+{% for id, company, name, email, status, eng, portal, last, nfiles in rows %}<tr class="rowlink" onclick="location='/admin/clients/{{ id }}'"><td><a href="/admin/clients/{{ id }}">{{ company }}</a></td><td>{{ name or '' }}{% if email %}<br><span class="mono" style="text-transform:none;letter-spacing:0">{{ email }}</span>{% endif %}</td>
+<td><span class="pill{% if status != 'Active' %} off{% endif %}">{{ status or 'Lead' }}</span></td><td>{{ eng or '' }}</td><td>{% if portal %}<span class="pill">On</span>{% else %}<span class="pill off">Off</span>{% endif %}</td><td>{{ nfiles }}</td><td>{{ (last or '')[:16]|replace('T',' ') }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="card empty">No clients yet. Add your first client to give them a portal login and share documents.</div>{% endif %}
+</section>""" + ADMIN_FOOT
+
+ADMIN_CLIENT = ADMIN_HEAD.replace("{% block navc %}{% endblock %}", "on") + """
+<section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company or 'New client' }}</h2>
+{% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+{% if request.args.get('stripe_error') %}<p class="err" role="alert">Stripe: {{ request.args.get('stripe_error') }}</p>{% endif %}
+{% if new_pw %}<div class="card" style="margin-bottom:16px"><p class="mono">Client login</p><p>Login page: <a href="{{ login_url }}">{{ login_url }}</a><br>Email: <b>{{ c.contact_email }}</b></p><p class="secret">{{ new_pw }}</p></div>{% endif %}
+<div class="split">
+<form class="card" method="post" autocomplete="off">
+ <p class="mono">Company</p>
+ <div class="grid">
+  <div class="full"><label class="f" for="company">Company name</label><input type="text" id="company" name="company" value="{{ c.company or '' }}" required></div>
+  <div><label class="f" for="website">Website</label><input type="text" id="website" name="website" value="{{ c.website or '' }}" placeholder="company.com"></div>
+  <div><label class="f" for="industry">Industry</label><input type="text" id="industry" name="industry" value="{{ c.industry or '' }}"></div>
+  <div><label class="f" for="country">Country</label><input type="text" id="country" name="country" value="{{ c.country or '' }}"></div>
+  <div><label class="f" for="status">Status</label><select id="status" name="status">{% for s in statuses %}<option{% if c.status == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+  <div class="full"><label class="f" for="engagement">Engagement type</label><select id="engagement" name="engagement"><option value="">Not set</option>{% for t in types %}<option{% if c.engagement == t %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+  <div class="full"><label class="f" for="address">Address</label><textarea id="address" name="address" style="min-height:70px">{{ c.address or '' }}</textarea></div>
+ </div>
+ <p class="mono" style="margin-top:22px">Main contact</p>
+ <div class="grid">
+  <div><label class="f" for="contact_name">Full name</label><input type="text" id="contact_name" name="contact_name" value="{{ c.contact_name or '' }}"></div>
+  <div><label class="f" for="contact_title">Job title</label><input type="text" id="contact_title" name="contact_title" value="{{ c.contact_title or '' }}"></div>
+  <div><label class="f" for="contact_email">Email (portal login)</label><input type="email" id="contact_email" name="contact_email" value="{{ c.contact_email or '' }}"></div>
+  <div><label class="f" for="contact_phone">Phone</label><input type="tel" id="contact_phone" name="contact_phone" value="{{ c.contact_phone or '' }}"></div>
+  <div class="full"><label class="f" for="contact_linkedin">LinkedIn</label><input type="url" id="contact_linkedin" name="contact_linkedin" value="{{ c.contact_linkedin or '' }}" placeholder="https://www.linkedin.com/in/..."></div>
+  <div class="full"><label class="f" for="notes">Notes (private, not shown to the client)</label><textarea id="notes" name="notes">{{ c.notes or '' }}</textarea></div>
+ </div>
+ <p class="mono" style="margin-top:22px">Client portal</p>
+ <div class="grid">
+  <div class="full"><label class="check"><input type="checkbox" id="portal_enabled" name="portal_enabled" value="1"{% if c.portal_enabled %} checked{% endif %}> Portal access on</label></div>
+  <div><label class="f" for="password">{% if c.password_hash %}New password (leave blank to keep){% else %}Password{% endif %}</label><input type="password" id="password" name="password" autocomplete="new-password" minlength="10"></div>
+  <div style="align-self:end"><label class="check"><input type="checkbox" id="generate" name="generate" value="1"> Generate a password for me</label></div>
+  <div class="full"><label class="f" for="stripe_customer_id">Stripe customer ID</label><input type="text" id="stripe_customer_id" name="stripe_customer_id" value="{{ c.stripe_customer_id or '' }}" placeholder="cus_..."></div>
+ </div>
+ <div class="row" style="margin-top:22px"><button type="submit">{% if cid %}Save changes{% else %}Add client{% endif %}</button>{% if cid %}<a href="/admin/clients" class="btn ghost">Cancel</a>{% endif %}</div>
+</form>
+<div style="display:grid;gap:18px">
+{% if cid %}
+ <div class="card"><p class="mono">Legal documents</p><p class="empty" style="margin:4px 0 12px;font-size:14px">Proposals, agreements and other documents the client sees under Legal docs.</p>
+  <label class="f" for="cat">Document type</label><select id="cat">{% for d in doc_types %}<option>{{ d }}</option>{% endfor %}</select>
+  <div class="drop" data-kind="legal" tabindex="0" role="button" style="margin-top:10px"><b>Drop files here</b> or click to choose<br><small>Up to 25 MB each</small></div>
+  <ul class="files">{% for f in files if f.kind == 'legal' %}<li><span class="ic">{{ f.name|ext }}</span><span class="nm"><a href="/admin/clients/{{ cid }}/files/{{ f.id }}" target="_blank">{{ f.name }}</a><small>{{ f.category }} · {{ f.size|fsize }} · {{ f.at[:10] }}</small></span><button class="ghost" data-del="{{ f.id }}" type="button">Delete</button></li>{% else %}<li class="empty" style="display:block">No documents yet.</li>{% endfor %}</ul>
+ </div>
+ <div class="card"><p class="mono">Client drive</p><p class="empty" style="margin:4px 0 12px;font-size:14px">Files in the client's drive. They can add their own; files you add here appear there too.</p>
+  <div class="drop" data-kind="drive" tabindex="0" role="button"><b>Drop files here</b> or click to choose</div>
+  <ul class="files">{% for f in files if f.kind == 'drive' %}<li><span class="ic">{{ f.name|ext }}</span><span class="nm"><a href="/admin/clients/{{ cid }}/files/{{ f.id }}" target="_blank">{{ f.name }}</a><small>{{ 'From client' if f.uploaded_by == 'client' else 'From you' }} · {{ f.size|fsize }} · {{ f.at[:10] }}</small></span><button class="ghost" data-del="{{ f.id }}" type="button">Delete</button></li>{% else %}<li class="empty" style="display:block">The drive is empty.</li>{% endfor %}</ul>
+ </div>
+ <div class="card"><p class="mono">Invoices (Stripe)</p>
+  {% if not stripe %}<p class="empty" style="font-size:14px">Stripe isn't connected. Add STRIPE_SECRET_KEY in Render to show invoices here and in the client portal.</p>
+  {% elif not c.stripe_customer_id %}<p class="empty" style="font-size:14px">No Stripe customer linked yet.</p><form method="post" action="/admin/clients/{{ cid }}/stripe"><button type="submit">Create Stripe customer</button></form>
+  {% elif inv_err %}<p class="err" style="font-size:14px">{{ inv_err }}</p>
+  {% elif inv %}<ul class="files">{% for i in inv %}<li><span class="ic">INV</span><span class="nm">{% if i.url %}<a href="{{ i.url }}" target="_blank" rel="noopener">{{ i.number }}</a>{% else %}{{ i.number }}{% endif %}<small>{{ i.created }} · {{ i.amount }}</small></span><span class="pill{% if i.status != 'paid' %} off{% endif %}">{{ i.status }}</span></li>{% endfor %}</ul>
+  {% else %}<p class="empty" style="font-size:14px">No invoices for {{ c.stripe_customer_id }} yet. Create them in Stripe and they appear here.</p>{% endif %}
+ </div>
+ <form class="card" method="post" action="/admin/clients/{{ cid }}/delete"><p class="mono">Delete client</p><p class="empty" style="font-size:14px;margin:4px 0 10px">Removes the client, their portal login and all their files. This can't be undone. Type DELETE to confirm.</p>
+  <div class="row"><input type="text" name="confirm" aria-label="Type DELETE to confirm" style="max-width:160px" autocomplete="off"><button class="danger" type="submit">Delete client</button></div></form>
+{% else %}<div class="card empty">Save the client first, then you can add documents and files.</div>{% endif %}
+</div></div>
+<input type="file" id="picker" multiple hidden>
+</section>
+<script>
+(function(){
+  var cid={{ cid|tojson }}; if(!cid) return;
+  var picker=document.getElementById('picker'), kind='drive';
+  function up(files,k){
+    if(!files||!files.length) return; var fd=new FormData(); fd.append('kind',k); fd.append('category',document.getElementById('cat').value);
+    for(var i=0;i<files.length;i++) fd.append('file',files[i]);
+    var z=document.querySelector('.drop[data-kind='+k+']'); z.innerHTML='<b>Uploading…</b>';
+    fetch('/admin/clients/'+cid+'/files',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json()})
+      .then(function(j){ if(j.errors&&j.errors.length) alert(j.errors.join('\\n')); location.reload(); })
+      .catch(function(){ z.innerHTML='<b>Upload failed.</b> Try again.'; });
+  }
+  document.querySelectorAll('.drop').forEach(function(z){
+    z.addEventListener('click',function(){kind=z.dataset.kind;picker.click()});
+    z.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();kind=z.dataset.kind;picker.click()}});
+    z.addEventListener('dragover',function(e){e.preventDefault();z.classList.add('over')});
+    z.addEventListener('dragleave',function(){z.classList.remove('over')});
+    z.addEventListener('drop',function(e){e.preventDefault();z.classList.remove('over');up(e.dataTransfer.files,z.dataset.kind)});
+  });
+  picker.addEventListener('change',function(){up(picker.files,kind);picker.value=''});
+  document.querySelectorAll('[data-del]').forEach(function(b){b.addEventListener('click',function(){
+    if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Confirm delete';b.classList.add('danger');return}
+    fetch('/admin/clients/'+cid+'/files/'+b.dataset.del+'/delete',{method:'POST',credentials:'same-origin'}).then(function(){location.reload()});
+  })});
+})();
+</script>""" + ADMIN_FOOT
+
+ADMIN_CONSULTANT = ADMIN_HEAD.replace("{% block navp %}{% endblock %}", "on") + """
+<section><h2>Consultant profile</h2><p class="empty" style="margin:0 0 16px">Shown to every client under Your Consultant in the portal.</p>
+{% if note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+<form class="card" method="post" enctype="multipart/form-data" style="max-width:760px"><div class="grid">
+ <div class="full row" style="gap:16px">{% if c.photo %}<img src="/consultant-photo" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover">{% endif %}<div style="flex:1;min-width:200px"><label class="f" for="photo">Photo (PNG, JPG or WebP)</label><input type="file" id="photo" name="photo" accept="image/png,image/jpeg,image/webp"></div></div>
+ <div><label class="f" for="name">Name</label><input type="text" id="name" name="name" value="{{ c.name }}"></div>
+ <div><label class="f" for="title">Title</label><input type="text" id="title" name="title" value="{{ c.title }}"></div>
+ <div><label class="f" for="email">Email</label><input type="email" id="email" name="email" value="{{ c.email }}"></div>
+ <div><label class="f" for="phone">Phone</label><input type="tel" id="phone" name="phone" value="{{ c.phone }}"></div>
+ <div class="full"><label class="f" for="linkedin">LinkedIn</label><input type="url" id="linkedin" name="linkedin" value="{{ c.linkedin }}" placeholder="https://www.linkedin.com/in/..."></div>
+ <div class="full"><label class="f" for="cal_url">Booking link</label><input type="url" id="cal_url" name="cal_url" value="{{ c.cal_url }}"></div>
+ <div class="full"><label class="f" for="bio">Bio</label><textarea id="bio" name="bio">{{ c.bio }}</textarea></div>
+</div><div class="row" style="margin-top:18px"><button type="submit">Save profile</button></div></form></section>""" + ADMIN_FOOT
+
+ICON = {
+ "home": '<path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/>',
+ "user": '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
+ "doc": '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8"/>',
+ "card": '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>',
+ "drive": '<path d="M3 7h6l2 2h10v10H3z"/>',
+ "gear": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+ "mail": '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/>',
+ "phone": '<path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 5a2 2 0 0 1 2-2z"/>',
+ "in": '<rect x="2" y="2" width="20" height="20" rx="3"/><path d="M7 10v7M7 7v.01M11 17v-4a2 2 0 0 1 4 0v4M11 10v7"/>',
+ "cal": '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
+}
+
+
+def icon(name, size=18):
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+            f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{ICON[name]}</svg>')
+
+
+S.app.jinja_env.globals["icon"] = icon
+
+PORTAL = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Client Portal · Automagic</title><meta name="robots" content="noindex">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#0A1018;--bg-2:#0F1722;--surface:#131D2A;--surface-2:#182434;--ink:#E8EEF5;--muted:#9BA9BA;--faint:#6E7D90;--line:#223043;--line-2:#2D3D53;
+--cyan:#7FD3E4;--cyan-hi:#B6E6F0;--cyan-deep:#1B3B47;--on-cyan:#062028;--ok:#7FD3A6;--warn:#F0C987;--err:#F2B8B5;
+--fd:"Space Grotesk","Segoe UI",system-ui,sans-serif;--fb:"Inter","Segoe UI",system-ui,sans-serif;--fm:"IBM Plex Mono",ui-monospace,Menlo,monospace;color-scheme:dark}
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.6 var(--fb);-webkit-font-smoothing:antialiased}
+a{color:var(--cyan)}:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
+h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
+.top{position:sticky;top:0;z-index:20;background:rgba(10,16,24,.88);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top .in{max-width:1240px;margin:0 auto;height:64px;display:flex;align-items:center;gap:16px;padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px))}
+.top img{height:22px;display:block}.top .who{margin-left:auto;font-size:14px;color:var(--muted);text-align:right;line-height:1.3;min-width:0}
+.top .who b{display:block;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:560px){.top .who{font-size:0}.top .who b{font-size:14px}}
+.btn{display:inline-flex;align-items:center;gap:8px;font:600 14.5px var(--fd);border-radius:7px;padding:10px 16px;border:1px solid transparent;cursor:pointer;text-decoration:none;white-space:nowrap}
+.btn-p{background:var(--cyan);color:var(--on-cyan)}.btn-p:hover{background:var(--cyan-hi)}
+.btn-g{background:transparent;color:var(--ink);border-color:var(--line-2)}.btn-g:hover{border-color:var(--cyan)}
+.shell{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:230px minmax(0,1fr);gap:36px;padding:32px max(16px,env(safe-area-inset-right,0px)) 64px max(16px,env(safe-area-inset-left,0px))}
+.side{position:sticky;top:96px;align-self:start;display:grid;gap:4px}
+.side a{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500}
+.side a:hover{color:var(--ink);background:var(--surface)}.side a.on{color:var(--ink);background:var(--surface-2);box-shadow:inset 3px 0 0 var(--cyan)}
+.side a svg{flex:none}
+@media (max-width:900px){.shell{grid-template-columns:minmax(0,1fr);gap:20px;padding-top:16px}
+ .side{position:static;display:flex;overflow-x:auto;gap:6px;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}.side::-webkit-scrollbar{display:none}
+ .side a{flex:none;border:1px solid var(--line);padding:8px 12px;font-size:14px}.side a.on{box-shadow:none;border-color:var(--cyan)}}
+.view[hidden]{display:none}
+.label{display:inline-flex;align-items:center;gap:9px;font:500 12px var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
+.label::before{content:"";width:8px;height:8px;background:var(--cyan)}
+.vh{display:grid;gap:10px;margin-bottom:24px}.vh h2{font-size:clamp(26px,3vw,34px);font-weight:600}.vh p{color:var(--muted);max-width:62ch;margin:0}
+.hero{position:relative;overflow:hidden;border:1px solid var(--line-2);border-radius:14px;padding:clamp(24px,4vw,44px);background:radial-gradient(ellipse 60% 90% at 90% 0%,rgba(127,211,228,.16),transparent 65%),linear-gradient(160deg,#10202D,var(--bg-2))}
+.hero h1{font-size:clamp(32px,4.4vw,52px);font-weight:600;line-height:1.05;margin:14px 0 12px}
+.hero h1 span{color:var(--cyan)}.hero p{color:var(--muted);max-width:62ch;margin:0;font-size:17px}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:18px}
+@media (max-width:1000px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tile{display:grid;gap:6px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface);text-decoration:none;color:var(--ink);transition:border-color .15s}
+.tile:hover{border-color:rgba(127,211,228,.5)}.tile svg{color:var(--cyan)}.tile b{font:600 17px var(--fd)}.tile span{color:var(--muted);font-size:13.5px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:clamp(18px,3vw,28px)}
+.con{display:grid;grid-template-columns:150px minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:640px){.con{grid-template-columns:minmax(0,1fr)}}
+.ph{width:150px;height:150px;border-radius:14px;object-fit:cover;background:var(--surface-2);display:grid;place-items:center;font:600 46px var(--fd);color:var(--cyan);border:1px solid var(--line-2)}
+.con h3{font-size:26px;font-weight:600}.con .t{color:var(--cyan);font:500 13px var(--fm);letter-spacing:.06em;text-transform:uppercase;margin:4px 0 14px}
+.con .bio{color:var(--muted);white-space:pre-line;max-width:64ch}
+.links{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+.ib{display:inline-flex;align-items:center;gap:9px;padding:9px 13px;border:1px solid var(--line-2);border-radius:8px;color:var(--ink);text-decoration:none;font-size:14.5px}
+.ib:hover{border-color:var(--cyan)}.ib svg{color:var(--cyan)}
+.docs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.doc{display:grid;justify-items:center;gap:10px;text-align:center;padding:20px 12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);text-decoration:none;color:var(--ink);min-width:0;position:relative;transition:border-color .15s,transform .15s}
+.doc:hover{border-color:rgba(127,211,228,.5);transform:translateY(-2px)}
+.fi{position:relative;width:58px;height:72px;background:var(--surface-2);border:1px solid var(--line-2);border-radius:4px 16px 4px 4px;display:grid;place-items:end center;padding-bottom:9px}
+.fi::after{content:"";position:absolute;right:-1px;top:-1px;width:16px;height:16px;background:linear-gradient(225deg,var(--bg) 50%,var(--line-2) 50%);border-radius:0 0 0 4px}
+.fi i{font:600 10.5px var(--fm);font-style:normal;padding:2px 6px;border-radius:3px;background:var(--cyan);color:var(--on-cyan)}
+.fi.pdf i{background:#F2A0A0;color:#2a0b0b}.fi.doc i,.fi.docx i{background:#9DBBF2;color:#0b1a33}.fi.xls i,.fi.xlsx i,.fi.csv i{background:#8FD8A9;color:#0b2a16}.fi.ppt i,.fi.pptx i,.fi.key i{background:#F0C987;color:#2e1f05}
+.doc .n{font-size:14px;font-weight:500;line-height:1.35;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.doc small{color:var(--faint);font:500 11px var(--fm);letter-spacing:.06em;text-transform:uppercase}
+.doc .x{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:6px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--muted);cursor:pointer;font-size:15px;line-height:1;opacity:0;transition:opacity .15s}
+.doc:hover .x,.doc .x:focus,.doc .x.armed{opacity:1}.doc .x.armed{color:var(--err);border-color:var(--err);width:auto;padding:0 8px;font:500 12px var(--fb)}
+@media (hover:none){.doc .x{opacity:1}}
+.group{margin-bottom:26px}.group h3{font:500 12px var(--fm);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:0 0 12px}
+.empty{padding:28px;border:1px dashed var(--line-2);border-radius:12px;color:var(--muted);text-align:center}
+.drop{border:1.5px dashed var(--line-2);border-radius:14px;padding:34px 20px;text-align:center;color:var(--muted);cursor:pointer;transition:border-color .15s,background .15s;margin-bottom:22px;background:var(--bg-2)}
+.drop svg{color:var(--cyan);margin-bottom:8px}.drop b{color:var(--ink);font-weight:600}
+.drop.over{border-color:var(--cyan);background:rgba(127,211,228,.07)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:14.5px}th{text-align:left;font:500 11px var(--fm);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:12px 14px;background:var(--bg-2);white-space:nowrap}
+td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{font-variant-numeric:tabular-nums}
+.st{font:500 11px var(--fm);letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted)}
+.st.paid{color:var(--ok);border-color:rgba(127,211,166,.4)}.st.open{color:var(--warn);border-color:rgba(240,201,135,.4)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+@media (max-width:900px){.grid2{grid-template-columns:minmax(0,1fr)}}
+.fg{display:grid;gap:14px}.f label{display:block;font:500 11px var(--fm);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.f input{width:100%;font:15px var(--fb);color:var(--ink);background:var(--bg);border:1.5px solid var(--line-2);border-radius:9px;padding:11px 12px}
+.f input:focus{outline:none;border-color:var(--cyan)}.f input[readonly]{color:var(--muted);border-style:dashed}
+.note{margin:0 0 18px;padding:12px 16px;border:1px solid rgba(127,211,228,.35);border-radius:10px;background:rgba(127,211,228,.07)}
+.kv{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 14px;font-size:14.5px;margin:0}.kv dt{color:var(--faint)}.kv dd{margin:0}
+</style></head><body>
+<header class="top"><div class="in"><a href="/" aria-label="Automagic home"><img src="/brand/wordmark-light.svg" alt="Automagic"></a>
+<div class="who"><b>{{ c.company }}</b>{{ c.contact_email }}</div>
+<form method="post" action="/portal/logout" style="margin:0"><button class="btn btn-g" type="submit">Sign out</button></form></div></header>
+<div class="shell">
+<nav class="side" aria-label="Portal">
+ <a href="#home" data-v="home">{{ icon('home')|safe }}Overview</a>
+ <a href="#consultant" data-v="consultant">{{ icon('user')|safe }}Your Consultant</a>
+ <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Legal docs</a>
+ <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
+ <a href="#drive" data-v="drive">{{ icon('drive')|safe }}Your Drive</a>
+ <a href="#settings" data-v="settings">{{ icon('gear')|safe }}Settings</a>
+</nav>
+<main>
+{% if note %}<p class="note" role="status">{{ note }}</p>{% endif %}
+
+<section class="view" id="v-home">
+ <div class="hero"><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
+ <p>This is your private space with Automagic. Reach your consultant, find proposals and agreements, view and pay invoices, and share files with our team, all in one place.</p></div>
+ <div class="tiles">
+  <a class="tile" href="#consultant">{{ icon('user', 22)|safe }}<b>Your Consultant</b><span>{{ con.name }}</span></a>
+  <a class="tile" href="#legal">{{ icon('doc', 22)|safe }}<b>Legal docs</b><span>{{ legal|length }} document{{ '' if legal|length == 1 else 's' }}</span></a>
+  <a class="tile" href="#invoices">{{ icon('card', 22)|safe }}<b>Invoices</b><span>{% if inv %}{{ inv|selectattr('status','equalto','open')|list|length }} open{% else %}View and pay{% endif %}</span></a>
+  <a class="tile" href="#drive">{{ icon('drive', 22)|safe }}<b>Your Drive</b><span>{{ drive|length }} file{{ '' if drive|length == 1 else 's' }}</span></a>
+ </div>
+</section>
+
+<section class="view" id="v-consultant" hidden>
+ <div class="vh"><span class="label">Your Consultant</span><h2>Here to help, every step of the way</h2></div>
+ <div class="card con">
+  {% if con.photo %}<img class="ph" src="/consultant-photo" alt="{{ con.name }}" width="150" height="150">{% else %}<div class="ph" aria-hidden="true">{{ con.name[:1] }}</div>{% endif %}
+  <div><h3>{{ con.name }}</h3><p class="t">{{ con.title }}</p><p class="bio">{{ con.bio }}</p>
+   <div class="links">
+    {% if con.email %}<a class="ib" href="mailto:{{ con.email }}">{{ icon('mail')|safe }}{{ con.email }}</a>{% endif %}
+    {% if con.phone %}<a class="ib" href="tel:{{ con.phone|replace(' ','') }}">{{ icon('phone')|safe }}{{ con.phone }}</a>{% endif %}
+    {% if con.linkedin %}<a class="ib" href="{{ con.linkedin }}" target="_blank" rel="noopener">{{ icon('in')|safe }}LinkedIn</a>{% endif %}
+   </div>
+   <p style="margin:22px 0 0"><a class="btn btn-p" href="{{ con.cal_url }}" target="_blank" rel="noopener">{{ icon('cal')|safe }}Book a meeting</a></p>
+  </div>
+ </div>
+</section>
+
+<section class="view" id="v-legal" hidden>
+ <div class="vh"><span class="label">Legal docs</span><h2>Proposals, agreements and contracts</h2><p>Documents we've shared with {{ c.company }}. Select one to open it.</p></div>
+ {% if legal %}{% for cat, items in legal|groupby('category') %}<div class="group"><h3>{{ cat or 'Other' }}</h3><div class="docs">
+  {% for f in items %}<a class="doc" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener"><span class="fi {{ (f.name|ext)|lower }}"><i>{{ f.name|ext }}</i></span><span class="n">{{ f.name }}</span><small>{{ f.at[:10] }} · {{ f.size|fsize }}</small></a>{% endfor %}
+ </div></div>{% endfor %}{% else %}<div class="empty">No documents yet. Proposals and agreements will appear here when we share them.</div>{% endif %}
+</section>
+
+<section class="view" id="v-invoices" hidden>
+ <div class="vh"><span class="label">Invoices</span><h2>Invoices and billing</h2><p>View, download and pay your invoices. Payments are handled securely by Stripe.</p></div>
+ {% if not stripe or not c.stripe_customer_id %}<div class="empty">Billing isn't set up for your account yet. Your invoices will appear here once it is.</div>
+ {% elif inv_err %}<div class="empty">Invoices can't be loaded right now. Please try again later.</div>
+ {% else %}
+  {% if inv %}<div class="tw"><table><thead><tr><th>Invoice</th><th>Date</th><th>Due</th><th>Amount</th><th>Status</th><th></th></tr></thead><tbody>
+  {% for i in inv %}<tr><td>{{ i.number }}</td><td>{{ i.created }}</td><td>{{ i.due }}</td><td class="num">{{ i.amount }}</td><td><span class="st {{ i.status }}">{{ i.status }}</span></td>
+  <td>{% if i.url %}<a href="{{ i.url }}" target="_blank" rel="noopener">{{ 'Pay now' if i.status == 'open' else 'View' }}</a>{% endif %}{% if i.pdf %} · <a href="{{ i.pdf }}" target="_blank" rel="noopener">PDF</a>{% endif %}</td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<div class="empty">No invoices yet.</div>{% endif %}
+  <form method="post" action="/portal/billing" style="margin-top:18px"><button class="btn btn-g" type="submit">{{ icon('card')|safe }}Manage billing details and payment methods</button></form>
+ {% endif %}
+</section>
+
+<section class="view" id="v-drive" hidden>
+ <div class="vh"><span class="label">Your Drive</span><h2>Share files with our team</h2><p>Upload anything we should see: data exports, briefs, templates. Up to 25 MB per file.</p></div>
+ <div class="drop" id="drop" tabindex="0" role="button">{{ icon('drive', 30)|safe }}<br><b>Drop files here</b> or click to choose</div>
+ <input type="file" id="picker" multiple hidden>
+ {% if drive %}<div class="docs">{% for f in drive %}<a class="doc" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener"><span class="fi {{ (f.name|ext)|lower }}"><i>{{ f.name|ext }}</i></span><span class="n">{{ f.name }}</span><small>{{ 'You' if f.uploaded_by == 'client' else 'Automagic' }} · {{ f.at[:10] }}</small>{% if f.uploaded_by == 'client' %}<button class="x" type="button" data-del="{{ f.id }}" aria-label="Delete {{ f.name }}">×</button>{% endif %}</a>{% endfor %}</div>
+ {% else %}<div class="empty">Your drive is empty.</div>{% endif %}
+</section>
+
+<section class="view" id="v-settings" hidden>
+ <div class="vh"><span class="label">Settings</span><h2>Your profile and account</h2></div>
+ <div class="grid2">
+  <form class="card fg" method="post" action="/portal/settings"><input type="hidden" name="action" value="profile"><h3 style="font-size:19px">Profile</h3>
+   <div class="f"><label for="s-name">Full name</label><input id="s-name" name="contact_name" value="{{ c.contact_name or '' }}"></div>
+   <div class="f"><label for="s-title">Job title</label><input id="s-title" name="contact_title" value="{{ c.contact_title or '' }}"></div>
+   <div class="f"><label for="s-phone">Phone</label><input id="s-phone" name="contact_phone" type="tel" value="{{ c.contact_phone or '' }}"></div>
+   <div class="f"><label for="s-li">LinkedIn</label><input id="s-li" name="contact_linkedin" type="url" value="{{ c.contact_linkedin or '' }}"></div>
+   <div class="f"><label for="s-email">Login email</label><input id="s-email" value="{{ c.contact_email }}" readonly></div>
+   <div><button class="btn btn-p" type="submit">Save profile</button></div></form>
+  <div class="fg">
+   <div class="card"><h3 style="font-size:19px;margin-bottom:14px">Company</h3><dl class="kv">
+    <dt>Company</dt><dd>{{ c.company }}</dd>{% if c.website %}<dt>Website</dt><dd>{{ c.website }}</dd>{% endif %}{% if c.industry %}<dt>Industry</dt><dd>{{ c.industry }}</dd>{% endif %}
+    {% if c.country %}<dt>Country</dt><dd>{{ c.country }}</dd>{% endif %}{% if c.engagement %}<dt>Engagement</dt><dd>{{ c.engagement }}</dd>{% endif %}</dl>
+    <p style="color:var(--faint);font-size:13.5px;margin:14px 0 0">To change company details, email {{ con.email }}.</p></div>
+   <form class="card fg" method="post" action="/portal/settings"><input type="hidden" name="action" value="password"><h3 style="font-size:19px">Change password</h3>
+    <div class="f"><label for="p-cur">Current password</label><input id="p-cur" name="current" type="password" autocomplete="current-password" required></div>
+    <div class="f"><label for="p-new">New password (10+ characters)</label><input id="p-new" name="new" type="password" autocomplete="new-password" minlength="10" required></div>
+    <div class="f"><label for="p-con">Confirm new password</label><input id="p-con" name="confirm" type="password" autocomplete="new-password" minlength="10" required></div>
+    <div><button class="btn btn-p" type="submit">Change password</button></div></form>
+   <form class="card" method="post" action="/portal/settings"><input type="hidden" name="action" value="signout_all"><h3 style="font-size:19px;margin-bottom:8px">Sessions</h3>
+    <p style="color:var(--muted);font-size:14px;margin:0 0 14px">Signed in on a shared or lost device? Sign out everywhere except here.</p><button class="btn btn-g" type="submit">Sign out of other devices</button></form>
+  </div>
+ </div>
+</section>
+</main></div>
+<script>
+(function(){
+  var views=['home','consultant','legal','invoices','drive','settings'];
+  function show(){var v=(location.hash||'#home').slice(1); if(views.indexOf(v)<0) v='home';
+    views.forEach(function(n){document.getElementById('v-'+n).hidden=n!==v});
+    document.querySelectorAll('.side a').forEach(function(a){a.classList.toggle('on',a.dataset.v===v); if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current')});
+    window.scrollTo(0,0);}
+  window.addEventListener('hashchange',show); show();
+  var drop=document.getElementById('drop'), picker=document.getElementById('picker');
+  function up(files){ if(!files||!files.length) return; var fd=new FormData(); for(var i=0;i<files.length;i++) fd.append('file',files[i]);
+    drop.innerHTML='<b>Uploading…</b>';
+    fetch('/portal/api/drive',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json()})
+     .then(function(j){ location.hash='#drive'; if(j.errors&&j.errors.length){ drop.innerHTML='<b>'+j.errors.join('<br>').replace(/</g,'&lt;')+'</b>'; setTimeout(function(){location.reload()},2500);} else location.reload(); })
+     .catch(function(){ drop.innerHTML='<b>Upload failed.</b> Please try again.'; });}
+  drop.addEventListener('click',function(){picker.click()});
+  drop.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();picker.click()}});
+  drop.addEventListener('dragover',function(e){e.preventDefault();drop.classList.add('over')});
+  drop.addEventListener('dragleave',function(){drop.classList.remove('over')});
+  drop.addEventListener('drop',function(e){e.preventDefault();drop.classList.remove('over');up(e.dataTransfer.files)});
+  picker.addEventListener('change',function(){up(picker.files);picker.value=''});
+  document.querySelectorAll('.x[data-del]').forEach(function(b){b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();
+    if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='Delete?';return}
+    fetch('/portal/api/drive/'+b.dataset.del+'/delete',{method:'POST',credentials:'same-origin'}).then(function(){location.reload()});});});
+})();
+</script>
+</body></html>"""

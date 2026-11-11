@@ -174,7 +174,7 @@ BEACON = ("<script>(function(){try{var k='am-vid',v=localStorage.getItem(k);if(!
 BOOK = (SRC / "book-call.html").read_text(encoding="utf-8")
 
 # Standalone pages copied as-is (no nav, no gate).
-STATIC = [("welcome", "welcome.html"), ("terms", "terms.html")]
+STATIC = [("welcome", "welcome.html"), ("terms", "terms.html"), ("login", "login.html")]
 
 
 def build():

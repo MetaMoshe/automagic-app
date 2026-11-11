@@ -57,7 +57,9 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .nav-links a{text-decoration:none;color:var(--muted)}
 .nav-links a:hover{color:var(--ink)}
 .nav .btn{padding:9px 16px;font-size:15px}
-@media (max-width:820px){.nav-links{display:none}.nav .btn{margin-left:auto}}
+.nav .btn-login{margin-left:-12px}
+@media (max-width:480px){.nav .wrap{gap:8px}.nav .btn{padding:8px 11px;font-size:14px}}
+@media (max-width:820px){.nav-links{display:none}.nav .btn-login{margin-left:auto}}
 
 /* hero */
 .hero{position:relative;padding-block:84px 72px;overflow:hidden;border-bottom:1px solid var(--line)}
@@ -67,6 +69,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 h1{font-weight:600;font-size:clamp(40px,5.6vw,72px);line-height:1;letter-spacing:-.035em}
 h1 .hl{position:relative;display:inline-block;white-space:nowrap}
 h1 .tw-ghost{visibility:hidden;padding:0 .12em}
+h1 .tw-ghost::before{content:attr(data-t)}
 h1 .tw-out{position:absolute;left:0;top:0;bottom:0;white-space:nowrap;color:var(--on-cyan);background:var(--cyan);padding:0 .12em;min-width:.5em}
 h1 .tw-out::after{content:"";display:inline-block;width:.09em;height:.82em;margin-left:.06em;vertical-align:-.06em;background:var(--on-cyan);animation:caret 1s steps(1) infinite}
 h1 .tw-out.typing::after{animation:none}
@@ -167,7 +170,7 @@ h1 .tw-out.done::after{animation:caret 1s steps(1) 3 forwards}
 .phase .dur{font-family:var(--font-mono);font-size:12.5px;color:var(--cyan)}
 .phase p{color:var(--muted);font-size:15px}
 .phase p b{color:var(--ink);font-weight:500}
-.proc-note{margin-top:36px;display:flex;gap:14px;align-items:flex-start;max-width:780px;color:var(--muted);font-size:15.5px;padding:18px 20px;border:1px solid var(--line);border-radius:8px;background:var(--bg-2)}
+.proc-note{margin-top:36px;display:flex;gap:14px;align-items:flex-start;width:fit-content;max-width:100%;color:var(--muted);font-size:15.5px;padding:18px 20px;border:1px solid var(--line);border-radius:8px;background:var(--bg-2)}
 .proc-note::before{content:"";width:10px;height:10px;background:var(--cyan);flex:none;margin-top:7px}
 @media (max-width:960px){
   .phases{grid-template-columns:1fr;padding-left:22px}
@@ -247,7 +250,9 @@ footer a:hover{color:var(--ink)}
       <a href="#services">Services</a>
       <a href="#process">How we work</a>
       <a href="#approach">Approach</a>
+      <a href="/work/">Case Studies</a>
     </nav>
+    <a class="btn btn-ghost btn-login" href="/login/">Client Login</a>
     <a class="btn btn-primary" href="https://cal.com/moshe-david/ai-transformation-discovery?overlayCalendar=true" target="_blank" rel="noopener" data-am-book>Book a call</a>
   </div>
 </header>
@@ -257,7 +262,7 @@ footer a:hover{color:var(--ink)}
   <div class="wrap">
     <div class="hero-copy">
       <span class="label">AI transformation agency</span>
-      <h1>We build the AI that works inside <span class="hl" aria-label="Your Business"><span class="tw-ghost" aria-hidden="true">Your Business</span><span class="tw-out done" id="tw" aria-hidden="true">Your Business</span></span></h1>
+      <h1>We build the AI that works inside <span class="hl" aria-label="Your Business"><span class="tw-ghost" aria-hidden="true" data-t="Your Business"></span><span class="tw-out done" id="tw" aria-hidden="true">Your Business</span></span></h1>
       <p class="lede">Automagic finds where AI creates a real operational advantage in your business, then builds it, embeds it in the systems you already run and keeps it running. One partner, from the first interview to tools your people use every day.</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="https://cal.com/moshe-david/ai-transformation-discovery?overlayCalendar=true" target="_blank" rel="noopener" data-am-book>Book a discovery call <span class="arr" aria-hidden="true">→</span></a>
@@ -362,21 +367,18 @@ footer a:hover{color:var(--ink)}
         <h3>AI Transformation</h3>
         <p>Discovery, a roadmap and AI built into how the whole organisation works. We take responsibility for the outcome and stay on to run it.</p>
         <ul><li>Discovery and AI Transformation Report</li><li>Agents and tools delivered in waves</li><li>Training, champions and adoption</li><li>Fractional Transformation Lead</li></ul>
-        <p class="eng-ex">Example: <a href="/hunter/">Hunter Executive</a></p>
       </article>
       <article class="eng-card">
         <span class="eng-tag">Plan first</span>
         <h3>AI Strategy</h3>
         <p>Research, discovery and a prioritised plan for where AI creates value, ready to act on with us or on your own.</p>
         <ul><li>Interviews and workflow mapping</li><li>Data, systems and governance audit</li><li>Roadmap by impact, effort and readiness</li><li>Build, buy or configure view per item</li></ul>
-        <p class="eng-ex">Clients include AFC Urgent Care and SR Accord. <a href="/clients/">See profiles</a></p>
       </article>
       <article class="eng-card">
         <span class="eng-tag">Ship a product</span>
         <h3>AI Product Build</h3>
         <p>Designing and shipping AI-powered products and features for your own customers, from first architecture to production.</p>
         <ul><li>Product and system design</li><li>Agent, model and data architecture</li><li>Production build and launch</li><li>Fractional CTO, if you need one</li></ul>
-        <p class="eng-ex">Examples: <a href="/zugi/">Zugi Ventures</a> and <a href="/revscale/">Revscale</a></p>
       </article>
     </div>
   </div>
@@ -450,7 +452,7 @@ footer a:hover{color:var(--ink)}
   <div class="wrap">
     <span class="strip-label">Trusted by</span>
     <ul class="clients">
-      <li>Hunter Executive</li><li>Zugi Ventures</li><li>Revscale</li><li>Ignite Visibility</li><li>Venture X</li><li>AFC Urgent Care</li><li>SR Accord</li><li>Tero</li><li>The Founder's Chair</li>
+      <li>Hunter Executive</li><li>Zugi Ventures</li><li>Revscale</li><li>Ignite Visibility</li><li>Venture X</li><li>AFC Urgent Care</li><li>Tero</li><li>The Founder's Chair</li>
     </ul>
   </div>
 </section>
