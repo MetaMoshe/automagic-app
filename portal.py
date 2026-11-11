@@ -842,8 +842,8 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .hero{position:relative;overflow:hidden;border:1px solid var(--line-2);border-radius:14px;padding:clamp(24px,4vw,44px);background:radial-gradient(ellipse 60% 90% at 90% 0%,rgba(127,211,228,.16),transparent 65%),linear-gradient(160deg,#10202D,var(--bg-2))}
 .hero h1{font-size:clamp(32px,4.4vw,52px);font-weight:600;line-height:1.05;margin:14px 0 12px}
 .hero h1 span{color:var(--cyan)}.hero p{color:var(--muted);max-width:62ch;margin:0;font-size:17px}
-.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:18px}
-@media (max-width:1000px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}
+@media (max-width:700px){.tiles{grid-template-columns:minmax(0,1fr)}}
 .tile{display:grid;gap:6px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface);text-decoration:none;color:var(--ink);transition:border-color .15s}
 .tile:hover{border-color:rgba(127,211,228,.5)}.tile svg{color:var(--cyan)}.tile b{font:600 17px var(--fd)}.tile span{color:var(--muted);font-size:13.5px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:clamp(18px,3vw,28px)}
@@ -900,19 +900,7 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 <main>
 {% if note %}<p class="note" role="status">{{ note }}</p>{% endif %}
 
-<section class="view" id="v-home">
- <div class="hero"><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
- <p>This is your private space with Automagic. Reach your consultant, find proposals and agreements, view and pay invoices, and share files with our team, all in one place.</p></div>
- <div class="tiles">
-  <a class="tile" href="#consultant">{{ icon('user', 22)|safe }}<b>Your Consultant</b><span>{{ con.name }}</span></a>
-  <a class="tile" href="#legal">{{ icon('doc', 22)|safe }}<b>Legal docs</b><span>{{ legal|length }} document{{ '' if legal|length == 1 else 's' }}</span></a>
-  <a class="tile" href="#invoices">{{ icon('card', 22)|safe }}<b>Invoices</b><span>{% if inv %}{{ inv|selectattr('status','equalto','open')|list|length }} open{% else %}View and pay{% endif %}</span></a>
-  <a class="tile" href="#drive">{{ icon('drive', 22)|safe }}<b>Your Drive</b><span>{{ drive|length }} file{{ '' if drive|length == 1 else 's' }}</span></a>
- </div>
-</section>
-
-<section class="view" id="v-consultant" hidden>
- <div class="vh"><span class="label">Your Consultant</span><h2>Here to help, every step of the way</h2></div>
+{% macro con_card() %}
  <div class="card con">
   {% if con.photo %}<img class="ph" src="/consultant-photo/{{ con.id }}" alt="{{ con.name }}" width="150" height="150">{% else %}<div class="ph" aria-hidden="true">{{ con.name[:1] }}</div>{% endif %}
   <div><h3>{{ con.name }}</h3><p class="t">{{ con.title }}</p><p class="bio">{{ con.bio }}</p>
@@ -924,6 +912,21 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
    <p style="margin:22px 0 0"><a class="btn btn-p" href="{{ con.cal_url }}" target="_blank" rel="noopener">{{ icon('cal')|safe }}Book a meeting</a></p>
   </div>
  </div>
+{% endmacro %}
+<section class="view" id="v-home">
+ <div class="hero"><span class="label">Client portal</span><h1>Welcome, <span>{{ first }}</span></h1>
+ <p>This is your private space with Automagic. Reach your consultant, find proposals and agreements, view and pay invoices, and share files with our team, all in one place.</p></div>
+ <div class="ov-con"><div class="vh" style="margin:26px 0 12px"><span class="label">Your Consultant</span></div>{{ con_card() }}</div>
+ <div class="tiles">
+  <a class="tile" href="#legal">{{ icon('doc', 22)|safe }}<b>Legal docs</b><span>{{ legal|length }} document{{ '' if legal|length == 1 else 's' }}</span></a>
+  <a class="tile" href="#invoices">{{ icon('card', 22)|safe }}<b>Invoices</b><span>{% if inv %}{{ inv|selectattr('status','equalto','open')|list|length }} open{% else %}View and pay{% endif %}</span></a>
+  <a class="tile" href="#drive">{{ icon('drive', 22)|safe }}<b>Your Drive</b><span>{{ drive|length }} file{{ '' if drive|length == 1 else 's' }}</span></a>
+ </div>
+</section>
+
+<section class="view" id="v-consultant" hidden>
+ <div class="vh"><span class="label">Your Consultant</span><h2>Here to help, every step of the way</h2></div>
+ {{ con_card() }}
 </section>
 
 <section class="view" id="v-legal" hidden>
