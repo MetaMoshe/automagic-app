@@ -37,7 +37,8 @@ signer = URLSafeSerializer(SECRET_KEY, salt="am-access")
 
 EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$")
 BOT_RE = re.compile(r"bot|crawl|spider|slurp|preview|monitor|headless|curl|wget|python-requests", re.I)
-OPEN_PAGES = ("/welcome/", "/terms/")
+OPEN_PAGES = ("/", "/welcome/", "/terms/")
+INDEXED_PAGES = ("/",)  # everything else stays out of search engines
 TYPES = ["AI Transformation", "AI Strategy", "AI Product Build", "Not sure yet"]
 
 
@@ -392,7 +393,8 @@ def site(path):
 
 @app.after_request
 def headers(resp):
-    resp.headers.setdefault("X-Robots-Tag", "noindex")
+    if request.path not in INDEXED_PAGES:
+        resp.headers.setdefault("X-Robots-Tag", "noindex")
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
