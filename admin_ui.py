@@ -120,6 +120,7 @@ a.tile:hover{border-color:var(--cyan)}
 """
 
 _I = {
+    "pricing": '<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
     "inbox": '<path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5 5h14l2 8v6H3v-6z"/>',
     "chart": '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
     "leads": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M17 8h5M19.5 5.5v5"/>',
@@ -148,6 +149,7 @@ MENU = [
     ("Sales", "leads", "Lead CRM", "/admin/leads", "leads"),
     ("Delivery", "clients", "Clients", "/admin/clients", None),
     ("Delivery", "consultants", "Consultants", "/admin/consultants", None),
+    ("Delivery", "pricing", "Pricing page", "/admin/pricing", None),
     ("Audience", "visitors", "Access and visitors", "/admin/visitors", None),
 ]
 

@@ -149,6 +149,64 @@ def set_setting(k, v):
         S.q("INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)", (k, v))
 
 
+PRICING_DEFAULT = {
+    "label": "Engagement models & pricing",
+    "heading": "How we charge",
+    "intro": "A hybrid model, so you pay separately for leadership, ongoing expertise and what is built, each on its own terms. "
+             "Prices below are starting points; your exact fees are set out in your proposal.",
+    "principles": [
+        {"title": "You own everything we build.", "text": "Code, prompts, workflows and data stay yours."},
+        {"title": "No mark-up on external costs.", "text": "You pay providers directly, at cost."},
+        {"title": "Priced before work starts.", "text": "Each wave is agreed before it begins, with no surprises."},
+    ],
+    "items": [
+        {"title": "Discovery", "badge": "One-off · fixed", "prefix": "Starting from", "price": "$XXXX", "unit": "fixed",
+         "text": "A 3–4 day investigation, your AI Transformation Report and a leadership readout.",
+         "link_label": "See a real discovery report", "link_url": "/hunter/", "outline": False},
+        {"title": "Fractional Transformation Lead", "badge": "Monthly", "prefix": "Starting from", "price": "$XXXX", "unit": "a month",
+         "text": "A senior lead for your AI programme: roadmap, governance rules, vendors, adoption and monthly steering reports.",
+         "link_label": "", "link_url": "", "outline": False},
+        {"title": "Monthly consultancy", "badge": "Monthly", "prefix": "Starting from", "price": "$XXXX", "unit": "a month",
+         "text": "Architecture, delivery management, monitoring, fixes, minor changes and tuning.",
+         "link_label": "", "link_url": "", "outline": False},
+        {"title": "Build: fixed cost per item", "badge": "Fixed per item", "prefix": "", "price": "", "unit": "",
+         "text": "Design, build, integration, testing, onboarding and launch of each agent, tool or change, priced before its wave starts.",
+         "link_label": "", "link_url": "", "outline": False},
+        {"title": "External costs", "badge": "Paid by you · at cost", "prefix": "", "price": "", "unit": "",
+         "text": "Software licences, AI model usage, hosting, data providers and APIs, billed to you directly by each provider.",
+         "link_label": "", "link_url": "", "outline": True},
+    ],
+    "flow_title": "How it fits together",
+    "flow": [
+        {"title": "Discovery", "text": "Once, at the start"},
+        {"title": "Lead + consultancy", "text": "Monthly, while the programme runs"},
+        {"title": "Builds in waves", "text": "A fixed price per item, agreed per wave"},
+        {"title": "External costs", "text": "Direct to providers, as you use them"},
+    ],
+    "note": "Your exact fees are in your proposal.",
+}
+PRICING_SLOTS = {"principles": 4, "items": 8, "flow": 6}
+PRICING_ITEM_KEYS = ["title", "badge", "prefix", "price", "unit", "text", "link_label", "link_url"]
+
+
+def pricing_content():
+    """Pricing page content: the saved JSON from the admin CMS, or the defaults."""
+    r = S.q("SELECT v FROM settings WHERE k = 'pricing.page'", one=True)
+    data = json.loads(json.dumps(PRICING_DEFAULT))
+    if r and r[0]:
+        try:
+            saved = json.loads(r[0])
+            data.update({k: v for k, v in saved.items() if k in data})
+        except ValueError:
+            pass
+    return data
+
+
+def safe_link(u):
+    u = (u or "").strip()
+    return u if u.startswith(("https://", "http://", "mailto:")) or (u.startswith("/") and not u.startswith("//")) else ""
+
+
 # ---------------------------------------------------------------- request guards
 @bp.before_app_request
 def guards():
@@ -585,6 +643,44 @@ def admin_consultant(pid=None):
                                   is_default=bool(pid and first and first[0] == pid))
 
 
+@bp.route("/admin/pricing", methods=["GET", "POST"])
+def admin_pricing():
+    r = admin_only()
+    if r:
+        return r
+    f = request.form
+    if request.method == "POST":
+        if f.get("reset") == "1":
+            S.q("DELETE FROM settings WHERE k = 'pricing.page'")
+            commit()
+            return redirect("/admin/pricing?saved=reset")
+        data = {k: S.clip(f.get(k), 1000 if k in ("intro", "note") else 200) for k in ("label", "heading", "intro", "flow_title", "note")}
+        data["label"] = data["label"] or PRICING_DEFAULT["label"]
+        data["heading"] = data["heading"] or PRICING_DEFAULT["heading"]
+        data["principles"] = [{"title": S.clip(f.get(f"pr{i}_title"), 200), "text": S.clip(f.get(f"pr{i}_text"), 400)}
+                              for i in range(PRICING_SLOTS["principles"])]
+        data["items"] = []
+        for i in range(PRICING_SLOTS["items"]):
+            it = {k: S.clip(f.get(f"it{i}_{k}"), 600 if k == "text" else 200) for k in PRICING_ITEM_KEYS}
+            it["link_url"] = safe_link(it["link_url"])
+            it["outline"] = f.get(f"it{i}_outline") == "1"
+            data["items"].append(it)
+        data["items"].sort(key=lambda x: not x["title"])  # filled cards first
+        data["flow"] = [{"title": S.clip(f.get(f"fl{i}_title"), 120), "text": S.clip(f.get(f"fl{i}_text"), 200)}
+                        for i in range(PRICING_SLOTS["flow"])]
+        set_setting("pricing.page", json.dumps(data))
+        commit()
+        return redirect("/admin/pricing?saved=1")
+    pr = pricing_content()
+    for k, n in PRICING_SLOTS.items():  # pad with empty slots so new cards can be added
+        blank = {"outline": False, **{x: "" for x in PRICING_ITEM_KEYS}} if k == "items" else {"title": "", "text": ""}
+        pr[k] = (pr[k] + [dict(blank) for _ in range(n)])[:n]
+    saved = request.args.get("saved")
+    note = "Saved. Clients see the changes straight away." if saved == "1" else "Reset to the default content." if saved == "reset" else ""
+    custom = bool(S.q("SELECT 1 FROM settings WHERE k = 'pricing.page'", one=True))
+    return render_template_string(ADMIN_PRICING, pr=pr, note=note, custom=custom)
+
+
 @bp.post("/admin/consultants/<int:pid>/delete")
 def admin_consultant_delete(pid):
     r = admin_only()
@@ -658,7 +754,7 @@ def portal():
         return redirect("/login/")
     inv, inv_err = invoices(c["stripe_customer_id"])
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
-    return render_template_string(PORTAL, c=c, first=first, phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
+    return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
                                   drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
@@ -855,6 +951,51 @@ ADMIN_CLIENT = U.head("clients", "Client") + """
 })();
 </script>""" + ADMIN_FOOT
 
+ADMIN_PRICING = U.head("pricing", "Pricing page") + """
+<section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Pricing page</h2></div>
+<p class="empty" style="margin:10px 0 16px">Edits the Engagement &amp; pricing page every client sees in their portal. Leave a title blank to hide that card or step. To see the result, sign in to the portal as a client (for example the demo client).{% if not custom %} You're seeing the default content.{% endif %}</p>
+{% if note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+<form method="post" class="pcms">
+ <div class="card"><h3>Page header</h3><div class="grid">
+  <div><label class="f" for="label">Small label</label><input type="text" id="label" name="label" value="{{ pr.label }}"></div>
+  <div><label class="f" for="heading">Heading</label><input type="text" id="heading" name="heading" value="{{ pr.heading }}"></div>
+  <div class="full"><label class="f" for="intro">Intro</label><textarea id="intro" name="intro" rows="3">{{ pr.intro }}</textarea></div>
+ </div></div>
+ <div class="card"><h3>Promises</h3><p class="empty">Short ticked statements shown above the cards.</p><div class="grid">
+  {% for x in pr.principles %}<div><label class="f" for="pr{{ loop.index0 }}_title">Promise {{ loop.index }}: bold text</label><input type="text" id="pr{{ loop.index0 }}_title" name="pr{{ loop.index0 }}_title" value="{{ x.title }}"></div>
+  <div><label class="f" for="pr{{ loop.index0 }}_text">Promise {{ loop.index }}: detail</label><input type="text" id="pr{{ loop.index0 }}_text" name="pr{{ loop.index0 }}_text" value="{{ x.text }}"></div>{% endfor %}
+ </div></div>
+ <div class="card"><h3>Pricing cards</h3><p class="empty">Shown in this order. The price line shows only when Price is filled in, for example "Starting from" + "$4,500" + "a month".</p>
+  {% for x in pr['items'] %}{% set i = loop.index0 %}<fieldset class="pcard"><legend>Card {{ loop.index }}{% if not x.title %} (empty, hidden){% endif %}</legend><div class="grid">
+   <div><label class="f" for="it{{ i }}_title">Title</label><input type="text" id="it{{ i }}_title" name="it{{ i }}_title" value="{{ x.title }}"></div>
+   <div><label class="f" for="it{{ i }}_badge">Badge</label><input type="text" id="it{{ i }}_badge" name="it{{ i }}_badge" value="{{ x.badge }}" placeholder="Monthly"></div>
+   <div class="g3 full">
+    <div><label class="f" for="it{{ i }}_prefix">Before price</label><input type="text" id="it{{ i }}_prefix" name="it{{ i }}_prefix" value="{{ x.prefix }}" placeholder="Starting from"></div>
+    <div><label class="f" for="it{{ i }}_price">Price</label><input type="text" id="it{{ i }}_price" name="it{{ i }}_price" value="{{ x.price }}" placeholder="$4,500"></div>
+    <div><label class="f" for="it{{ i }}_unit">After price</label><input type="text" id="it{{ i }}_unit" name="it{{ i }}_unit" value="{{ x.unit }}" placeholder="a month"></div>
+   </div>
+   <div class="full"><label class="f" for="it{{ i }}_text">Description</label><textarea id="it{{ i }}_text" name="it{{ i }}_text" rows="2">{{ x.text }}</textarea></div>
+   <div><label class="f" for="it{{ i }}_link_label">Link text (optional)</label><input type="text" id="it{{ i }}_link_label" name="it{{ i }}_link_label" value="{{ x.link_label }}"></div>
+   <div><label class="f" for="it{{ i }}_link_url">Link URL</label><input type="text" id="it{{ i }}_link_url" name="it{{ i }}_link_url" value="{{ x.link_url }}" placeholder="/hunter/ or https://..."></div>
+   <label class="chk full"><input type="checkbox" name="it{{ i }}_outline" value="1"{% if x.outline %} checked{% endif %}> Dashed outline (for costs the client pays directly)</label>
+  </div></fieldset>{% endfor %}
+ </div>
+ <div class="card"><h3>How it fits together</h3><div class="grid">
+  <div class="full"><label class="f" for="flow_title">Section label</label><input type="text" id="flow_title" name="flow_title" value="{{ pr.flow_title }}"></div>
+  {% for x in pr.flow %}<div><label class="f" for="fl{{ loop.index0 }}_title">Step {{ loop.index }}: title</label><input type="text" id="fl{{ loop.index0 }}_title" name="fl{{ loop.index0 }}_title" value="{{ x.title }}"></div>
+  <div><label class="f" for="fl{{ loop.index0 }}_text">Step {{ loop.index }}: detail</label><input type="text" id="fl{{ loop.index0 }}_text" name="fl{{ loop.index0 }}_text" value="{{ x.text }}"></div>{% endfor %}
+  <div class="full"><label class="f" for="note">Closing note</label><input type="text" id="note" name="note" value="{{ pr.note }}"><small class="empty">A link to Project docs (when the client has any) and "Ask [consultant]" are added after it automatically.</small></div>
+ </div></div>
+ <div class="row savebar"><button type="submit">Save pricing page</button></div>
+</form>
+{% if custom %}<form method="post" class="card" style="margin-top:18px"><input type="hidden" name="reset" value="1"><p class="mono">Reset</p><p class="empty" style="font-size:14px;margin:4px 0 10px">Go back to the default content. Your edits will be lost.</p><button class="danger" type="submit" onclick="return confirm('Reset the pricing page to the default content?')">Reset to default</button></form>{% endif %}
+<style>.pcms{display:grid;gap:18px;max-width:900px}.pcms h3{margin:0 0 6px}.pcms p.empty{margin:0 0 14px;font-size:14px}
+.pcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px 16px;margin:0 0 14px;min-width:0}.pcard legend{padding:0 6px;font-weight:600}
+.g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}@media (max-width:640px){.g3{grid-template-columns:minmax(0,1fr)}}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px}.chk input{width:auto}
+.savebar{position:sticky;bottom:0;padding:12px 0;background:var(--bg)}</style>
+</section>""" + ADMIN_FOOT
+
 ADMIN_CONSULTANTS = U.head("consultants", "Consultants") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Consultants</h2><a class="btn" href="/admin/consultants/new">Add consultant</a></div>
 <p class="empty" style="margin:10px 0 16px">Each client sees their assigned consultant under Your Consultant. Clients with no consultant assigned see the default, the first one listed.</p>
@@ -1047,16 +1188,16 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 .f input{width:100%;font:15px var(--fb);color:var(--ink);background:var(--bg);border:1.5px solid var(--line-2);border-radius:9px;padding:11px 12px}
 .f input:focus{outline:none;border-color:var(--cyan)}.f input[readonly]{color:var(--muted);border-style:dashed}
 .note{margin:0 0 18px;padding:12px 16px;border:1px solid rgba(127,211,228,.35);border-radius:10px;background:rgba(127,211,228,.07)}
-.prin{list-style:none;margin:0 0 22px;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.prin{list-style:none;margin:0 0 22px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .prin li{display:flex;gap:10px;align-items:flex-start;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);font-size:14px;color:var(--muted);line-height:1.5}
 .prin li svg{flex:none;color:var(--ok);margin-top:2px}.prin b{color:var(--ink);font-weight:600}
 .pm{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .pc{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;display:grid;align-content:start;gap:10px}
-.pc.ext{background:transparent;border-style:dashed;grid-column:1/-1}
+.pc.ext{background:transparent;border-style:dashed}.pc:last-child:nth-child(odd){grid-column:1/-1}
 .pt{display:flex;justify-content:space-between;align-items:center;gap:10px}.pn{font:500 12px var(--fm);color:var(--faint);letter-spacing:.1em}
 .pu{font:500 11px var(--fm);letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:999px;border:1px solid rgba(127,211,228,.4);color:var(--cyan);background:rgba(127,211,228,.07)}
 .pc h3{font-size:19px;font-weight:600}.pc p.pp{color:var(--faint);font-size:13.5px}.pp b{font:600 22px var(--fd);color:var(--ink);margin:0 4px}.pp small{font-size:13.5px}.pc p{margin:0;color:var(--muted);line-height:1.55;font-size:14.5px}.pl{font-size:14px;text-decoration:none}
-.pflow{margin-top:14px}.pflow ol{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;counter-reset:f}
+.pflow{margin-top:14px}.pflow ol{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;counter-reset:f}
 .pflow li{counter-increment:f;display:grid;gap:4px;padding:14px;border-radius:10px;background:var(--bg-2);border:1px solid var(--line)}
 .pflow li::before{content:counter(f);font:500 12px var(--fm);color:var(--cyan)}.pflow li b{font:600 15px var(--fd)}.pflow li span{color:var(--muted);font-size:13.5px}
 .pflow>p{margin:16px 0 0;color:var(--muted);font-size:14.5px}
@@ -1180,22 +1321,19 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </section>
 
 <section class="view" id="v-pricing" hidden>
- <div class="vh"><span class="label">Engagement models & pricing</span><h2>How we charge</h2><p>A hybrid model, so you pay separately for leadership, ongoing expertise and what is built, each on its own terms. Prices below are starting points; your exact fees are set out in your proposal.</p></div>
- <ul class="prin">
-  <li>{{ icon('check')|safe }}<span><b>You own everything we build.</b> Code, prompts, workflows and data stay yours.</span></li>
-  <li>{{ icon('check')|safe }}<span><b>No mark-up on external costs.</b> You pay providers directly, at cost.</span></li>
-  <li>{{ icon('check')|safe }}<span><b>Priced before work starts.</b> Each wave is agreed before it begins, with no surprises.</span></li>
- </ul>
- <div class="pm">
-  <article class="pc"><div class="pt"><span class="pn">01</span><span class="pu">One-off · fixed</span></div><h3>Discovery</h3><p class="pp">Starting from <b>$XXXX</b> <small>fixed</small></p><p>A 3–4 day investigation, your AI Transformation Report and a leadership readout.</p><a class="pl" href="/hunter/" target="_blank" rel="noopener">See a real discovery report ↗</a></article>
-  <article class="pc"><div class="pt"><span class="pn">02</span><span class="pu">Monthly</span></div><h3>Fractional Transformation Lead</h3><p class="pp">Starting from <b>$XXXX</b> <small>a month</small></p><p>A senior lead for your AI programme: roadmap, governance rules, vendors, adoption and monthly steering reports.</p></article>
-  <article class="pc"><div class="pt"><span class="pn">03</span><span class="pu">Monthly</span></div><h3>Monthly consultancy</h3><p class="pp">Starting from <b>$XXXX</b> <small>a month</small></p><p>Architecture, delivery management, monitoring, fixes, minor changes and tuning.</p></article>
-  <article class="pc"><div class="pt"><span class="pn">04</span><span class="pu">Fixed per item</span></div><h3>Build: fixed cost per item</h3><p>Design, build, integration, testing, onboarding and launch of each agent, tool or change, priced before its wave starts.</p></article>
-  <article class="pc ext"><div class="pt"><span class="pn">05</span><span class="pu">Paid by you · at cost</span></div><h3>External costs</h3><p>Software licences, AI model usage, hosting, data providers and APIs, billed to you directly by each provider.</p></article>
+ <div class="vh"><span class="label">{{ pr.label }}</span><h2>{{ pr.heading }}</h2>{% if pr.intro %}<p>{{ pr.intro }}</p>{% endif %}</div>
+ {% set prin = pr.principles|selectattr('title')|list %}{% if prin %}<ul class="prin">
+  {% for x in prin %}<li>{{ icon('check')|safe }}<span><b>{{ x.title }}</b> {{ x.text }}</span></li>{% endfor %}
+ </ul>{% endif %}
+ {% set items = pr['items']|selectattr('title')|list %}<div class="pm">
+  {% for x in items %}<article class="pc{% if x.outline %} ext{% endif %}"><div class="pt"><span class="pn">{{ '%02d' % loop.index }}</span>{% if x.badge %}<span class="pu">{{ x.badge }}</span>{% endif %}</div><h3>{{ x.title }}</h3>
+   {% if x.price %}<p class="pp">{% if x.prefix %}{{ x.prefix }} {% endif %}<b>{{ x.price }}</b>{% if x.unit %} <small>{{ x.unit }}</small>{% endif %}</p>{% endif %}
+   {% if x.text %}<p>{{ x.text }}</p>{% endif %}
+   {% if x.link_url and x.link_label %}<a class="pl" href="{{ x.link_url }}" target="_blank" rel="noopener">{{ x.link_label }} ↗</a>{% endif %}</article>{% endfor %}
  </div>
- <div class="card pflow"><span class="label">How it fits together</span>
-  <ol><li><b>Discovery</b><span>Once, at the start</span></li><li><b>Lead + consultancy</b><span>Monthly, while the programme runs</span></li><li><b>Builds in waves</b><span>A fixed price per item, agreed per wave</span></li><li><b>External costs</b><span>Direct to providers, as you use them</span></li></ol>
-  <p>Your exact fees are in your proposal{% if legal %} under <a href="#legal">Project docs</a>{% endif %}. Questions? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">Ask {{ con.name.split(' ')[0] }}</a>.</p>
+ {% set flow = pr.flow|selectattr('title')|list %}<div class="card pflow">{% if flow %}<span class="label">{{ pr.flow_title }}</span>
+  <ol>{% for x in flow %}<li><b>{{ x.title }}</b><span>{{ x.text }}</span></li>{% endfor %}</ol>{% endif %}
+  <p>{% if pr.note %}{{ pr.note }} {% endif %}{% if legal %}See <a href="#legal">Project docs</a>. {% endif %}Questions? <a href="mailto:{{ con.email or 'hello@automagic.agency' }}">Ask {{ con.name.split(' ')[0] }}</a>.</p>
  </div>
 </section>
 
