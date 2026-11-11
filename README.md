@@ -25,6 +25,6 @@ To add a case study: add its file to `src/`, add a row to `PAGES` in
 ## Client portal and CRM
 
 - `/admin/clients`: add, edit and delete clients, set their portal login, upload legal documents and drive files (drag and drop), link a Stripe customer.
-- `/admin/consultant`: the "Your Consultant" profile (photo, bio, email, phone, LinkedIn, booking link) shown to every client.
+- `/admin/consultants`: add, edit and delete consultants (photo, bio, email, phone, LinkedIn, booking link). Assign one to each client in the CRM; the client sees them under "Your Consultant". Clients with none assigned see the default (the first consultant). The old single profile is migrated as the first consultant.
 - `/login/` → `/portal/`: client sign in (email + password) and the portal: overview, Your Consultant, Legal docs, Invoices, Your Drive, Settings.
 - Files are stored on the Render disk under `$DATA_DIR/files/`. Invoices need `STRIPE_SECRET_KEY` set in Render and a Stripe customer ID on the client.

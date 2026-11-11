@@ -462,7 +462,7 @@ td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}td.nw{w
 </style></head><body>
 <header><div class="wrap"><h1>Automagic portfolio · Admin</h1><form method="post" action="/admin/logout"><button class="ghost" type="submit">Sign out</button></form></div></header>
 <main class="wrap">
-<nav class="tabs" aria-label="Sections"><a href="/admin/clients">Clients</a><a href="/admin/consultant">Consultant profile</a><a href="#overview">Overview</a><a href="#leads">Leads ({{ tot_leads }})</a><a href="#access">Access emails ({{ tot_access[1] }})</a><a href="#people">Visitor activity</a><a href="/" target="_blank">Open site</a></nav>
+<nav class="tabs" aria-label="Sections"><a href="/admin/clients">Clients</a><a href="/admin/consultants">Consultants</a><a href="#overview">Overview</a><a href="#leads">Leads ({{ tot_leads }})</a><a href="#access">Access emails ({{ tot_access[1] }})</a><a href="#people">Visitor activity</a><a href="/" target="_blank">Open site</a></nav>
 
 <section id="overview"><h2>Last 7 days</h2>
 <div class="tiles">
