@@ -6,6 +6,7 @@ password-protected admin dashboard at /admin.
 
 Environment:
   ADMIN_PASSWORD  password for /admin (admin is disabled when unset)
+  STRIPE_SECRET_KEY  optional; shows Stripe invoices in the client portal and admin
   SECRET_KEY      signs the access and admin cookies (set a long random value)
   DATABASE_URL    Postgres URL; when unset, SQLite at $DATA_DIR/portfolio.db
   DATA_DIR        folder for the SQLite file (default ./data)
@@ -32,12 +33,12 @@ app = Flask(__name__, static_folder=None)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config.update(SECRET_KEY=SECRET_KEY, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   SESSION_COOKIE_NAME="am_admin", PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
-                  MAX_CONTENT_LENGTH=32 * 1024)
+                  MAX_CONTENT_LENGTH=27 * 1024 * 1024)  # uploads; other routes are capped at 64 KB in portal.guards
 signer = URLSafeSerializer(SECRET_KEY, salt="am-access")
 
 EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$")
 BOT_RE = re.compile(r"bot|crawl|spider|slurp|preview|monitor|headless|curl|wget|python-requests", re.I)
-OPEN_PAGES = ("/", "/welcome/", "/terms/")
+OPEN_PAGES = ("/", "/welcome/", "/terms/", "/login/")
 INDEXED_PAGES = ("/",)  # everything else stays out of search engines
 TYPES = ["AI Transformation", "AI Strategy", "AI Product Build", "Not sure yet"]
 
@@ -398,7 +399,7 @@ def headers(resp):
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-    if request.path.startswith("/admin"):
+    if request.path.startswith(("/admin", "/portal")):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -461,7 +462,7 @@ td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}td.nw{w
 </style></head><body>
 <header><div class="wrap"><h1>Automagic portfolio · Admin</h1><form method="post" action="/admin/logout"><button class="ghost" type="submit">Sign out</button></form></div></header>
 <main class="wrap">
-<nav class="tabs" aria-label="Sections"><a href="#overview">Overview</a><a href="#leads">Leads ({{ tot_leads }})</a><a href="#access">Access emails ({{ tot_access[1] }})</a><a href="#people">Visitor activity</a><a href="/" target="_blank">Open site</a></nav>
+<nav class="tabs" aria-label="Sections"><a href="/admin/clients">Clients</a><a href="/admin/consultant">Consultant profile</a><a href="#overview">Overview</a><a href="#leads">Leads ({{ tot_leads }})</a><a href="#access">Access emails ({{ tot_access[1] }})</a><a href="#people">Visitor activity</a><a href="/" target="_blank">Open site</a></nav>
 
 <section id="overview"><h2>Last 7 days</h2>
 <div class="tiles">
@@ -505,6 +506,10 @@ td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}td.nw{w
 </main></body></html>"""
 
 init_db()
+
+import portal  # noqa: E402  (client portal + CRM; imports this module)
+portal.init()
+app.register_blueprint(portal.bp)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), debug=False)

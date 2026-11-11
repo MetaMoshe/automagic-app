@@ -19,3 +19,5 @@ services:
         generateValue: true
       - key: ADMIN_PASSWORD
         sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
