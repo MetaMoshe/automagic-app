@@ -356,6 +356,58 @@ a.addEventListener('input',function(){a.dataset.auto='0'});s.addEventListener('c
 {% else %}<div class="card empty">No clients yet. Add a client first, then you can message them.</div>{% endif %}
 """ + FOOT
 
+LEADS = U.head("leads", "Lead CRM") + """
+<div class="ph"><div><h2>Lead CRM</h2><p>Book a Call requests from the website, plus leads you add yourself. Move each one through the pipeline.</p></div>
+<div class="row"><a href="/admin/export/leads.csv">Download CSV</a><a class="btn" href="/admin/leads/new">Add lead</a></div></div>
+{% if note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+<nav class="chips" aria-label="Pipeline"><a href="/admin/leads" class="{{ 'on' if not status }}">All<b>{{ total }}</b></a>{% for s in statuses %}<a href="/admin/leads?status={{ s|urlencode }}" class="{{ 'on' if status == s }}">{{ s }}<b>{{ counts[s] }}</b></a>{% endfor %}</nav>
+<form method="get" class="row" style="margin:0 0 14px;max-width:460px">{% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}<input type="search" name="q" value="{{ qtext }}" placeholder="Search name, company or email" aria-label="Search leads"><button class="ghost" type="submit">Search</button></form>
+{% if rows %}<div class="tw"><table><thead><tr><th>Received (UTC)</th><th>Name</th><th>Company</th><th>Email</th><th>Engagement</th><th>Status</th><th>Updated</th></tr></thead><tbody>
+{% for id, at, name, company, email, eng, st, upd, cid in rows %}<tr class="rowlink" onclick="location='/admin/leads/{{ id }}'"><td class="nw">{{ at[:16]|replace('T',' ') }}</td><td><a href="/admin/leads/{{ id }}">{{ name }}</a></td><td>{{ company or '' }}</td><td>{{ email }}</td><td>{{ eng or '' }}</td>
+<td><span class="pill{% if st == 'Won' %} won{% elif st == 'Lost' %} lost{% elif st != 'New' %} off{% endif %}">{{ st }}</span></td><td class="nw">{{ (upd or '')[:10] }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="card empty">{% if status or qtext %}No leads match.{% else %}No leads yet. They appear here when someone sends the Book a Call form on the website.{% endif %}</div>{% endif %}
+""" + FOOT
+
+LEAD = U.head("leads", "Lead") + """
+<section><p><a href="/admin/leads">← All leads</a></p><h2>{{ d.name or 'New lead' }}{% if lid %} <span class="pill{% if d.status == 'Won' %} won{% elif d.status == 'Lost' %} lost{% endif %}">{{ d.status }}</span>{% endif %}</h2>
+{% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+<div class="split">
+<form class="card" method="post" autocomplete="off">
+ <p class="mono">Pipeline</p>
+ <div class="grid">
+  <div><label class="f" for="status">Status</label><select id="status" name="status">{% for s in statuses %}<option{% if d.status == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+  <div><label class="f" for="engagement">Engagement</label><select id="engagement" name="engagement"><option value="">Not set</option>{% for t in types %}<option{% if d.engagement == t %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+  <div class="full"><label class="f" for="admin_notes">Your notes (private)</label><textarea id="admin_notes" name="admin_notes" placeholder="Calls, next steps, budget, decision makers">{{ d.admin_notes or '' }}</textarea></div>
+ </div>
+ <p class="mono" style="margin-top:22px">Contact</p>
+ <div class="grid">
+  <div><label class="f" for="name">Full name</label><input type="text" id="name" name="name" value="{{ d.name or '' }}" required></div>
+  <div><label class="f" for="email">Email</label><input type="email" id="email" name="email" value="{{ d.email or '' }}" required></div>
+  <div><label class="f" for="company">Company</label><input type="text" id="company" name="company" value="{{ d.company or '' }}"></div>
+  <div><label class="f" for="website">Website</label><input type="text" id="website" name="website" value="{{ d.website or '' }}"></div>
+  <div class="full"><label class="f" for="notes">Their message</label><textarea id="notes" name="notes">{{ d.notes or '' }}</textarea></div>
+ </div>
+ <div class="row" style="margin-top:22px"><button type="submit">{% if lid %}Save changes{% else %}Add lead{% endif %}</button>{% if d.email %}<a class="btn ghost" href="mailto:{{ d.email }}">Email {{ d.name.split(' ')[0] }}</a>{% endif %}</div>
+</form>
+<div style="display:grid;gap:18px">
+{% if lid %}
+ <div class="card"><p class="mono">Details</p><dl class="kv">
+  <dt>Received</dt><dd>{{ d.at[:16]|replace('T',' ') }} UTC</dd>
+  <dt>From page</dt><dd>{{ d.page or 'Unknown' }}</dd>
+  {% if d.access_email and d.access_email != d.email %}<dt>Portfolio email</dt><dd>{{ d.access_email }}</dd>{% endif %}
+  {% if d.updated %}<dt>Last updated</dt><dd>{{ d.updated[:16]|replace('T',' ') }} UTC</dd>{% endif %}
+ </dl></div>
+ <div class="card"><p class="mono">Client</p>
+  {% if client %}<p style="margin:6px 0 0">Converted to <a href="/admin/clients/{{ client.id }}">{{ client.company }}</a>.</p>
+  {% else %}<p class="empty" style="font-size:14px;margin:4px 0 12px">{% if match %}A client with this email already exists: <a href="/admin/clients/{{ match.id }}">{{ match.company }}</a>. Converting links the lead to it.{% else %}Creates a client in the CRM from this lead and marks the lead Won. You can then turn on their portal login.{% endif %}</p>
+  <form method="post" action="/admin/leads/{{ lid }}/convert"><button type="submit">Convert to client</button></form>{% endif %}
+ </div>
+ <form class="card" method="post" action="/admin/leads/{{ lid }}/delete"><p class="mono">Delete lead</p><p class="empty" style="font-size:14px;margin:4px 0 10px">This can't be undone. Type DELETE to confirm.</p>
+  <div class="row"><input type="text" name="confirm" aria-label="Type DELETE to confirm" style="max-width:160px" autocomplete="off"><button class="danger" type="submit">Delete lead</button></div></form>
+{% else %}<div class="card empty">Add someone you met outside the website, like a referral or an event contact.</div>{% endif %}
+</div></div></section>
+""" + FOOT
+
 VISITORS = U.head("visitors", "Access and visitors") + """
 <div class="ph"><div><h2>Access and visitors</h2><p>People who signed up with their email to view the portfolio, and what they looked at.</p></div></div>
 <section id="access"><h2 style="font-size:19px">Access emails <span class="pill">{{ tot_access[1] }}</span> <a href="/admin/export/access.csv">Download CSV</a></h2>
