@@ -1,7 +1,7 @@
 """Admin pages that sit in the left menu next to Clients and Consultants (portal.py):
 
   /admin/inbox      everything new: client messages, Book a Call requests, client drive uploads, portfolio sign-ups
-  /admin            analytics (traffic, pages, referrers, places)
+  /admin            analytics: see analytics.py (site-wide, per page, per visitor journeys)
   /admin/leads      Lead CRM: Book a Call leads with a pipeline status, private notes, convert to client
   /admin/visitors   portfolio access emails and visitor activity by email
 
@@ -193,46 +193,6 @@ def inbox_read():
 
 
 # ---------------------------------------------------------------- analytics
-@bp.get("/admin")
-@bp.get("/admin/")
-def analytics():
-    r = guard()
-    if r:
-        return r
-    days = 30
-    since = (datetime.now(timezone.utc) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
-    since7 = (datetime.now(timezone.utc) - timedelta(days=6)).strftime("%Y-%m-%d")
-    visits = S.q("SELECT at, path, ref, vid, device, country, city FROM visits WHERE at >= ? ORDER BY at", (since,))
-    v7 = [v for v in visits if v[0] >= since7]
-    by_day = defaultdict(lambda: [0, set()])
-    pages, refs, devices = defaultdict(int), defaultdict(int), defaultdict(int)
-    countries, cities = defaultdict(set), defaultdict(set)
-    for at, path, ref, vid, dev, country, city in visits:
-        countries[country or "Unknown"].add(vid)
-        if city:
-            cities[f"{city}, {country}"].add(vid)
-        by_day[at[:10]][0] += 1
-        by_day[at[:10]][1].add(vid)
-        pages[path] += 1
-        refs[ref or "Direct or unknown"] += 1
-        devices[dev] += 1
-    today = datetime.now(timezone.utc).date()
-    series = []
-    for i in range(days - 1, -1, -1):
-        d = (today - timedelta(days=i)).isoformat()
-        series.append((d, by_day[d][0], len(by_day[d][1])))
-    peak = max([s[1] for s in series] + [1])
-    top = lambda dct, n=10: sorted(dct.items(), key=lambda x: -x[1])[:n]
-    return render_template_string(
-        ANALYTICS, series=series, peak=peak, pages=top(pages), refs=top(refs), devices=top(devices, 3),
-        countries=top({k: len(v) for k, v in countries.items()}), cities=top({k: len(v) for k, v in cities.items()}),
-        total_visits=len(visits), v7=len(v7), u7=len({v[3] for v in v7}), days=days,
-        tot_access=S.q("SELECT COUNT(*), COUNT(DISTINCT email) FROM access", one=True),
-        tot_leads=S.q("SELECT COUNT(*) FROM leads", one=True)[0],
-        leads7=S.q("SELECT COUNT(*) FROM leads WHERE at >= ?", (since7,), one=True)[0],
-        access7=S.q("SELECT COUNT(DISTINCT email) FROM access WHERE at >= ?", (since7,), one=True)[0])
-
-
 # ---------------------------------------------------------------- lead CRM
 LEAD_KEYS = ["id", "at", "name", "company", "website", "email", "engagement", "notes", "page", "access_email",
              "status", "admin_notes", "updated", "client_id"]
@@ -360,7 +320,9 @@ def visitors():
     last_place = {}
     for email, country, city in S.q("SELECT email, country, city FROM visits WHERE email IS NOT NULL AND country IS NOT NULL ORDER BY at"):
         last_place[email] = ", ".join(x for x in (city, country) if x)
+    import analytics as A
     return render_template_string(VISITORS, access=access, people=people, last_place=last_place,
+                                  spent=A.people_time(), dur=A.dur,
                                   tot_access=S.q("SELECT COUNT(*), COUNT(DISTINCT email) FROM access", one=True))
 
 
@@ -394,92 +356,15 @@ a.addEventListener('input',function(){a.dataset.auto='0'});s.addEventListener('c
 {% else %}<div class="card empty">No clients yet. Add a client first, then you can message them.</div>{% endif %}
 """ + FOOT
 
-ANALYTICS = U.head("chart", "Analytics") + """
-<div class="ph"><div><h2>Analytics</h2><p>Visits to the website and the portfolio. Your own visits while signed in to admin aren't counted.</p></div></div>
-<section><p class="mono">Last 7 days</p>
-<div class="tiles">
-<div class="tile"><span class="mono">Page views</span><b>{{ v7 }}</b><span>{{ total_visits }} in {{ days }} days</span></div>
-<div class="tile"><span class="mono">Unique visitors</span><b>{{ u7 }}</b><span>by browser</span></div>
-<a class="tile" href="/admin/visitors"><span class="mono">New access sign-ups</span><b>{{ access7 }}</b><span>{{ tot_access[1] }} unique emails in total</span></a>
-<a class="tile" href="/admin/leads"><span class="mono">Book a Call leads</span><b>{{ leads7 }}</b><span>{{ tot_leads }} in total</span></a>
-</div></section>
-<section><h2 style="font-size:19px">Page views, last {{ days }} days <a href="/admin/export/visits.csv">Download CSV</a></h2>
-<div class="card"><div class="chart" role="img" aria-label="Daily page views for the last {{ days }} days">
-{% for d, n, u in series %}<div style="height:{{ (n / peak * 100)|round(1) }}%" title="{{ d }}: {{ n }} views, {{ u }} visitors"></div>{% endfor %}
-</div><div class="axis"><span>{{ series[0][0] }}</span><span>Today</span></div></div></section>
-<section><div class="grid3">
-<div class="card"><p class="mono">Top pages</p>{% if pages %}<ul class="bars">{% for k, n in pages %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / pages[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
-<div class="card"><p class="mono">Referrers</p>{% if refs %}<ul class="bars">{% for k, n in refs %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / refs[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
-<div class="card"><p class="mono">Devices</p>{% if devices %}<ul class="bars">{% for k, n in devices %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / devices[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
-</div></section>
-<section><div class="grid2">
-<div class="card"><p class="mono">Countries · visitors</p>{% if countries %}<ul class="bars">{% for k, n in countries %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / countries[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No visits yet.</p>{% endif %}</div>
-<div class="card"><p class="mono">Cities · visitors</p>{% if cities %}<ul class="bars">{% for k, n in cities %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / cities[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No city data yet.</p>{% endif %}</div>
-</div></section>
-<p class="mono" style="margin:32px 0 0;text-transform:none;letter-spacing:0">Locations are approximate, from <a href="https://db-ip.com">IP Geolocation by DB-IP</a>.</p>
-""" + FOOT
-
-LEADS = U.head("leads", "Lead CRM") + """
-<div class="ph"><div><h2>Lead CRM</h2><p>Book a Call requests from the website, plus leads you add yourself. Move each one through the pipeline.</p></div>
-<div class="row"><a href="/admin/export/leads.csv">Download CSV</a><a class="btn" href="/admin/leads/new">Add lead</a></div></div>
-{% if note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
-<nav class="chips" aria-label="Pipeline"><a href="/admin/leads" class="{{ 'on' if not status }}">All<b>{{ total }}</b></a>{% for s in statuses %}<a href="/admin/leads?status={{ s|urlencode }}" class="{{ 'on' if status == s }}">{{ s }}<b>{{ counts[s] }}</b></a>{% endfor %}</nav>
-<form method="get" class="row" style="margin:0 0 14px;max-width:460px">{% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}<input type="search" name="q" value="{{ qtext }}" placeholder="Search name, company or email" aria-label="Search leads"><button class="ghost" type="submit">Search</button></form>
-{% if rows %}<div class="tw"><table><thead><tr><th>Received (UTC)</th><th>Name</th><th>Company</th><th>Email</th><th>Engagement</th><th>Status</th><th>Updated</th></tr></thead><tbody>
-{% for id, at, name, company, email, eng, st, upd, cid in rows %}<tr class="rowlink" onclick="location='/admin/leads/{{ id }}'"><td class="nw">{{ at[:16]|replace('T',' ') }}</td><td><a href="/admin/leads/{{ id }}">{{ name }}</a></td><td>{{ company or '' }}</td><td>{{ email }}</td><td>{{ eng or '' }}</td>
-<td><span class="pill{% if st == 'Won' %} won{% elif st == 'Lost' %} lost{% elif st != 'New' %} off{% endif %}">{{ st }}</span></td><td class="nw">{{ (upd or '')[:10] }}</td></tr>{% endfor %}
-</tbody></table></div>{% else %}<div class="card empty">{% if status or qtext %}No leads match.{% else %}No leads yet. They appear here when someone sends the Book a Call form on the website.{% endif %}</div>{% endif %}
-""" + FOOT
-
-LEAD = U.head("leads", "Lead") + """
-<section><p><a href="/admin/leads">← All leads</a></p><h2>{{ d.name or 'New lead' }}{% if lid %} <span class="pill{% if d.status == 'Won' %} won{% elif d.status == 'Lost' %} lost{% endif %}">{{ d.status }}</span>{% endif %}</h2>
-{% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
-<div class="split">
-<form class="card" method="post" autocomplete="off">
- <p class="mono">Pipeline</p>
- <div class="grid">
-  <div><label class="f" for="status">Status</label><select id="status" name="status">{% for s in statuses %}<option{% if d.status == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
-  <div><label class="f" for="engagement">Engagement</label><select id="engagement" name="engagement"><option value="">Not set</option>{% for t in types %}<option{% if d.engagement == t %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
-  <div class="full"><label class="f" for="admin_notes">Your notes (private)</label><textarea id="admin_notes" name="admin_notes" placeholder="Calls, next steps, budget, decision makers">{{ d.admin_notes or '' }}</textarea></div>
- </div>
- <p class="mono" style="margin-top:22px">Contact</p>
- <div class="grid">
-  <div><label class="f" for="name">Full name</label><input type="text" id="name" name="name" value="{{ d.name or '' }}" required></div>
-  <div><label class="f" for="email">Email</label><input type="email" id="email" name="email" value="{{ d.email or '' }}" required></div>
-  <div><label class="f" for="company">Company</label><input type="text" id="company" name="company" value="{{ d.company or '' }}"></div>
-  <div><label class="f" for="website">Website</label><input type="text" id="website" name="website" value="{{ d.website or '' }}"></div>
-  <div class="full"><label class="f" for="notes">Their message</label><textarea id="notes" name="notes">{{ d.notes or '' }}</textarea></div>
- </div>
- <div class="row" style="margin-top:22px"><button type="submit">{% if lid %}Save changes{% else %}Add lead{% endif %}</button>{% if d.email %}<a class="btn ghost" href="mailto:{{ d.email }}">Email {{ d.name.split(' ')[0] }}</a>{% endif %}</div>
-</form>
-<div style="display:grid;gap:18px">
-{% if lid %}
- <div class="card"><p class="mono">Details</p><dl class="kv">
-  <dt>Received</dt><dd>{{ d.at[:16]|replace('T',' ') }} UTC</dd>
-  <dt>From page</dt><dd>{{ d.page or 'Unknown' }}</dd>
-  {% if d.access_email and d.access_email != d.email %}<dt>Portfolio email</dt><dd>{{ d.access_email }}</dd>{% endif %}
-  {% if d.updated %}<dt>Last updated</dt><dd>{{ d.updated[:16]|replace('T',' ') }} UTC</dd>{% endif %}
- </dl></div>
- <div class="card"><p class="mono">Client</p>
-  {% if client %}<p style="margin:6px 0 0">Converted to <a href="/admin/clients/{{ client.id }}">{{ client.company }}</a>.</p>
-  {% else %}<p class="empty" style="font-size:14px;margin:4px 0 12px">{% if match %}A client with this email already exists: <a href="/admin/clients/{{ match.id }}">{{ match.company }}</a>. Converting links the lead to it.{% else %}Creates a client in the CRM from this lead and marks the lead Won. You can then turn on their portal login.{% endif %}</p>
-  <form method="post" action="/admin/leads/{{ lid }}/convert"><button type="submit">Convert to client</button></form>{% endif %}
- </div>
- <form class="card" method="post" action="/admin/leads/{{ lid }}/delete"><p class="mono">Delete lead</p><p class="empty" style="font-size:14px;margin:4px 0 10px">This can't be undone. Type DELETE to confirm.</p>
-  <div class="row"><input type="text" name="confirm" aria-label="Type DELETE to confirm" style="max-width:160px" autocomplete="off"><button class="danger" type="submit">Delete lead</button></div></form>
-{% else %}<div class="card empty">Add someone you met outside the website, like a referral or an event contact.</div>{% endif %}
-</div></div></section>
-""" + FOOT
-
 VISITORS = U.head("visitors", "Access and visitors") + """
 <div class="ph"><div><h2>Access and visitors</h2><p>People who signed up with their email to view the portfolio, and what they looked at.</p></div></div>
 <section id="access"><h2 style="font-size:19px">Access emails <span class="pill">{{ tot_access[1] }}</span> <a href="/admin/export/access.csv">Download CSV</a></h2>
 {% if access %}<div class="tw"><table><thead><tr><th>Signed up (UTC)</th><th>Email</th><th>First page asked for</th><th>Location</th></tr></thead><tbody>
 {% for at, email, page, country, city in access %}<tr><td class="nw">{{ at[:16]|replace('T',' ') }}</td><td><a href="mailto:{{ email }}">{{ email }}</a></td><td>{{ page }}</td><td>{{ [city, country]|select|join(', ') }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No sign-ups yet.</div>{% endif %}</section>
-<section id="people"><h2 style="font-size:19px">Visitor activity by email</h2>
-{% if people %}<div class="tw"><table><thead><tr><th>Email</th><th>Page views</th><th>Pages seen</th><th>Last seen (UTC)</th><th>Location</th></tr></thead><tbody>
-{% for email, n, last, distinct in people %}<tr><td>{{ email }}</td><td>{{ n }}</td><td>{{ distinct }}</td><td class="nw">{{ last[:16]|replace('T',' ') }}</td><td>{{ last_place.get(email, '') }}</td></tr>{% endfor %}
+<section id="people"><h2 style="font-size:19px">Visitor activity by email</h2><p style="color:var(--muted);font-size:14px;margin:-6px 0 12px">Click someone to see their journey: every visit, page, time spent and how far they read.</p>
+{% if people %}<div class="tw"><table><thead><tr><th>Email</th><th>Page views</th><th>Pages seen</th><th>Time spent</th><th>Last seen (UTC)</th><th>Location</th></tr></thead><tbody>
+{% for email, n, last, distinct in people %}<tr class="rowlink" onclick="location.href=this.querySelector('a').href"><td><a href="/admin/visitors/journey?email={{ email|urlencode }}">{{ email }}</a></td><td>{{ n }}</td><td>{{ distinct }}</td><td>{{ dur(spent.get(email)) if spent.get(email) else '–' }}</td><td class="nw">{{ last[:16]|replace('T',' ') }}</td><td>{{ last_place.get(email, '') }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No signed-in visits yet.</div>{% endif %}</section>
 """ + FOOT
 
@@ -487,3 +372,6 @@ VISITORS = U.head("visitors", "Access and visitors") + """
 @bp.app_template_global("ico")
 def _ico(name, size=18):
     return U.ico(name, size)
+
+
+import analytics  # noqa: E402,F401  (registers /admin, /admin/analytics/page, /admin/visitors/journey)

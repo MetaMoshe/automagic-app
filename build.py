@@ -166,10 +166,9 @@ def portfolio_data():
 
 # Access to content pages is enforced by server.py (signed am_access cookie).
 
-# Visitor analytics: one small first-party beacon per page view (no cookies, no third parties).
-BEACON = ("<script>(function(){try{var k='am-vid',v=localStorage.getItem(k);if(!v){v=Math.random().toString(36).slice(2)+Date.now().toString(36);"
-          "localStorage.setItem(k,v)}}catch(e){v=''}var d=JSON.stringify({path:location.pathname,ref:document.referrer,vid:v});"
-          "if(navigator.sendBeacon)navigator.sendBeacon('/api/event',d);else fetch('/api/event',{method:'POST',body:d,keepalive:true}).catch(function(){})})()</script>")
+# Visitor analytics (src/beacon.js): first-party, no cookies, no third parties. One view event per page,
+# then pings with active reading time, scroll depth and sections read.
+BEACON = "<script>" + (SRC / "beacon.js").read_text(encoding="utf-8") + "</script>"
 
 BOOK = (SRC / "book-call.html").read_text(encoding="utf-8")
 

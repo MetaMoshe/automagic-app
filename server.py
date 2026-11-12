@@ -119,6 +119,14 @@ def init_db():
                     q(f"ALTER TABLE {table} ADD COLUMN {'IF NOT EXISTS ' if DATABASE_URL else ''}{col} TEXT")
                 except sqlite3.OperationalError:
                     pass  # column already there
+        # Engagement tracking: page-view id, session id, active seconds, scroll %, sections read, UTM tag.
+        for col, typ in (("pv", "TEXT"), ("sid", "TEXT"), ("active", "INTEGER"), ("scroll", "INTEGER"),
+                         ("sections", "TEXT"), ("utm", "TEXT")):
+            try:
+                q(f"ALTER TABLE visits ADD COLUMN {'IF NOT EXISTS ' if DATABASE_URL else ''}{col} {typ}")
+            except sqlite3.OperationalError:
+                pass  # column already there
+        q("CREATE INDEX IF NOT EXISTS visits_pv ON visits (pv)")
         if not DATABASE_URL:
             db().commit()
 
@@ -274,6 +282,19 @@ def api_event():
         d = json.loads(request.get_data(as_text=True) or "{}")
     except ValueError:
         return "", 204
+    if d.get("t") == "ping":
+        # Engagement update for a page view already recorded. The beacon sends running totals.
+        pv, vid = clip(d.get("pv"), 40), clip(d.get("vid"), 40)
+        if pv:
+            try:
+                active = max(0, min(int(d.get("active") or 0), 4 * 3600))
+                scroll = max(0, min(int(d.get("scroll") or 0), 100))
+            except (TypeError, ValueError):
+                return "", 204
+            secs = [clip(x, 60) for x in (d.get("sections") or []) if isinstance(x, str)][:40]
+            q("UPDATE visits SET active = ?, scroll = ?, sections = ? WHERE pv = ? AND COALESCE(vid, '') = ?",
+              (active, scroll, json.dumps(secs), pv, vid))
+        return "", 204
     path = clip(d.get("path"), 300)
     if not path.startswith("/"):
         return "", 204
@@ -282,8 +303,10 @@ def api_event():
         ref = ""
     device = "Phone" if re.search(r"Mobi|iPhone|Android", ua) else "Tablet" if re.search(r"iPad|Tablet", ua) else "Desktop"
     country, city = where()
-    q("INSERT INTO visits (at, path, ref, vid, device, email, country, city) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      (now(), path, ref, clip(d.get("vid"), 40), device, access_email(), country, city))
+    utm = clip(d.get("utm"), 200).strip("|") or None
+    q("INSERT INTO visits (at, path, ref, vid, device, email, country, city, pv, sid, utm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      (now(), path, ref, clip(d.get("vid"), 40), device, access_email(), country, city,
+       clip(d.get("pv"), 40) or None, clip(d.get("sid"), 40) or None, utm))
     return "", 204
 
 
@@ -337,7 +360,7 @@ def admin_export(name):
     if r:
         return r
     cols = {"access": "at, email, page, country, city", "leads": "at, name, company, website, email, engagement, notes, page, access_email, status, admin_notes",
-            "visits": "at, path, ref, vid, device, email, country, city"}
+            "visits": "at, path, ref, vid, device, email, country, city, sid, active, scroll, sections, utm"}
     if name not in cols:
         abort(404)
     rows = q(f"SELECT {cols[name]} FROM {name} ORDER BY at DESC")
