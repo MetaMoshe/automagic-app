@@ -21,7 +21,9 @@ from flask import Blueprint, abort, jsonify, redirect, render_template_string, r
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+import activity
 import admin_ui as U
+import drive
 import server as S
 
 bp = Blueprint("portal", __name__)
@@ -90,6 +92,8 @@ def init():
         if not S.DATABASE_URL:
             S.db().commit()
     os.makedirs(FILES_DIR, exist_ok=True)
+    drive.init()
+    activity.init()
 
 
 def commit():
@@ -293,6 +297,12 @@ def guards():
         origin = request.headers.get("Origin")
         if origin and urllib.parse.urlparse(origin).netloc != request.host:
             abort(403)
+    if request.method == "POST" and session.get("view_as") and p.startswith("/portal") and p not in ("/portal/logout", "/portal/api/track"):
+        # Viewing as the client is read-only, so nothing is sent or changed in their name.
+        msg = "You're viewing the portal as the client, so changes are turned off."
+        if p.startswith("/portal/api/"):
+            return jsonify(ok=False, error=msg, errors=[msg], saved=[]), 403
+        return redirect("/portal/?note=" + urllib.parse.quote(msg))
     uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p == "/portal/api/drive" or p.startswith("/admin/consultants/") or (p.startswith("/admin/clients/") and p.endswith("/logo"))
     limit = MAX_FILE + 1024 * 1024 if uploads else 64 * 1024
     if (request.content_length or 0) > limit:
@@ -313,6 +323,13 @@ def current_client():
     if not cid:
         return None
     c = client_row(cid)
+    if session.get("view_as"):
+        # An admin viewing the portal as this client ("View portal as client" in the CRM).
+        if c and session.get("admin") and session.get("view_as") == cid:
+            return c
+        for k in ("client_id", "client_ver", "view_as"):
+            session.pop(k, None)
+        return None
     if not c or not c["portal_enabled"] or c["session_ver"] != ver:
         session.pop("client_id", None)
         return None
@@ -320,7 +337,7 @@ def current_client():
 
 
 # ---------------------------------------------------------------- files
-def save_upload(cid, f, kind, category, by):
+def save_upload(cid, f, kind, category, by, folder_id=None):
     name = (f.filename or "file").replace("\\", "/").rsplit("/", 1)[-1][:200] or "file"
     data = f.read(MAX_FILE + 1)
     if len(data) > MAX_FILE:
@@ -334,8 +351,8 @@ def save_upload(cid, f, kind, category, by):
     with open(os.path.join(folder, stored), "wb") as out:
         out.write(data)
     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-    S.q("INSERT INTO client_files (client_id, at, kind, category, name, stored, size, mime, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (cid, S.now(), kind, category, name, stored, len(data), mime, by))
+    S.q("INSERT INTO client_files (client_id, at, kind, category, name, stored, size, mime, uploaded_by, folder_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (cid, S.now(), kind, category, name, stored, len(data), mime, by, folder_id if kind == "drive" else None))
     commit()
     return name, None
 
@@ -500,7 +517,8 @@ def admin_client(cid=None):
     inv, inv_err = invoices(c.get("stripe_customer_id")) if cid else (None, None)
     return render_template_string(ADMIN_CLIENT, c=c, cid=cid, err=err, note=note, new_pw=new_pw, files=files,
                                   statuses=STATUSES, types=S.TYPES, phases=PHASES, doc_types=DOC_TYPES, stripe=bool(STRIPE_KEY),
-                                  inv=inv, inv_err=inv_err, login_url=request.host_url.rstrip("/") + "/login/", cons=consultants())
+                                  inv=inv, inv_err=inv_err, login_url=request.host_url.rstrip("/") + "/login/", cons=consultants(),
+                                  drive_tree=drive.tree_json(cid, "admin") if cid else "null")
 
 
 @bp.post("/admin/clients/<int:cid>/delete")
@@ -564,9 +582,13 @@ def admin_upload(cid):
         abort(404)
     kind = "legal" if request.form.get("kind") == "legal" else "drive"
     cat = request.form.get("category") if request.form.get("category") in DOC_TYPES else ("Other" if kind == "legal" else None)
+    try:
+        folder = drive.folder_ok(cid, request.form.get("folder")) if kind == "drive" else None
+    except ValueError as e:
+        return jsonify(ok=False, saved=[], errors=[str(e)])
     saved, errors = [], []
     for f in request.files.getlist("file"):
-        name, e = save_upload(cid, f, kind, cat, "admin")
+        name, e = save_upload(cid, f, kind, cat, "admin", folder)
         (saved if name else errors).append(name or e)
     return jsonify(ok=not errors, saved=saved, errors=errors)
 
@@ -628,8 +650,11 @@ def admin_client_logo_get(cid):
 
 @bp.get("/portal/how-we-work")
 def portal_how_we_work():
-    if not current_client() and not session.get("admin"):
+    c = current_client()
+    if not c and not session.get("admin"):
         return redirect("/login/")
+    if c:
+        activity.log(c["id"], "view", "how-we-work", secs=0)
     resp = send_file(os.path.join(PAGES_DIR, "how-we-work.html"), mimetype="text/html", max_age=0)
     resp.headers["Cache-Control"] = "private, no-store"
     return resp
@@ -641,6 +666,27 @@ def portal_logo():
     if not c:
         abort(404)
     return logo_response(c)
+
+
+@bp.get("/admin/clients/<int:cid>/drive")
+def admin_drive_tree(cid):
+    r = admin_only()
+    if r:
+        return r
+    if not client_row(cid):
+        abort(404)
+    return jsonify(drive.tree(cid, "admin"))
+
+
+@bp.post("/admin/clients/<int:cid>/drive/op")
+def admin_drive_op(cid):
+    r = admin_only()
+    if r:
+        return r
+    if not client_row(cid):
+        abort(404)
+    err = drive.op(cid, "admin", request.get_json(silent=True) or {})
+    return jsonify(ok=not err, error=err, tree=drive.tree(cid, "admin"))
 
 
 @bp.get("/admin/clients/<int:cid>/files/<int:fid>")
@@ -862,14 +908,40 @@ def client_login():
     session["client_id"], session["client_ver"] = r[0], r[3]
     S.q("UPDATE clients SET last_login = ? WHERE id = ?", (S.now(), r[0]))
     commit()
+    activity.login(r[0])
     return jsonify(ok=True, next="/portal/")
 
 
 @bp.post("/portal/logout")
 def client_logout():
+    cid = session.pop("view_as", None)
     session.pop("client_id", None)
     session.pop("client_ver", None)
+    session.pop("psid", None)
+    if cid and session.get("admin"):
+        return redirect(f"/admin/clients/{cid}")
     return redirect("/login/")
+
+
+@bp.post("/admin/clients/<int:cid>/view-as")
+def admin_view_as(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    if not c:
+        abort(404)
+    session["client_id"], session["client_ver"], session["view_as"] = cid, c["session_ver"], cid
+    session.pop("psid", None)
+    return redirect("/portal/")
+
+
+@bp.post("/portal/api/track")
+def portal_track():
+    c = current_client()
+    if c:
+        activity.track(c["id"], request.get_json(silent=True, force=True) or {})
+    return "", 204
 
 
 # ---------------------------------------------------------------- client portal
@@ -883,7 +955,7 @@ def portal():
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
     msgs = messages_for(c["id"])
     return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), stage=stage_card(c.get("phase") if c.get("phase") in PHASES else "Introduction", consultant_for(c)), msgs=msgs, unread=sum(1 for m in msgs if m["sender"] == "consultant" and not m["read_client"]), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
-                                  drive=files_for(c["id"], "drive"), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
+                                  drive=files_for(c["id"], "drive"), drive_tree=drive.tree_json(c["id"], "client"), viewing_as=bool(session.get("view_as")), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
 
@@ -892,7 +964,10 @@ def portal_file(fid):
     c = current_client()
     if not c:
         abort(404)
-    return send_stored(c["id"], fid)
+    resp = send_stored(c["id"], fid)
+    r = S.q("SELECT name, kind FROM client_files WHERE id = ? AND client_id = ?", (fid, c["id"]), one=True)
+    activity.log(c["id"], "download", "legal" if r[1] == "legal" else "drive", "Opened " + r[0], f"/portal/files/{fid}")
+    return resp
 
 
 @bp.post("/portal/api/drive")
@@ -900,11 +975,34 @@ def portal_upload():
     c = current_client()
     if not c:
         abort(401)
+    try:
+        folder = drive.folder_ok(c["id"], request.form.get("folder"))
+    except ValueError as e:
+        return jsonify(ok=False, saved=[], errors=[str(e)])
     saved, errors = [], []
     for f in request.files.getlist("file"):
-        name, e = save_upload(c["id"], f, "drive", None, "client")
+        name, e = save_upload(c["id"], f, "drive", None, "client", folder)
         (saved if name else errors).append(name or e)
+    if saved:
+        activity.log(c["id"], "action", "drive", "Uploaded " + ", ".join(saved)[:100])
     return jsonify(ok=not errors, saved=saved, errors=errors)
+
+
+@bp.get("/portal/api/drive/tree")
+def portal_drive_tree():
+    c = current_client()
+    if not c:
+        abort(401)
+    return jsonify(drive.tree(c["id"], "client"))
+
+
+@bp.post("/portal/api/drive/op")
+def portal_drive_op():
+    c = current_client()
+    if not c:
+        abort(401)
+    err = drive.op(c["id"], "client", request.get_json(silent=True) or {})
+    return jsonify(ok=not err, error=err, tree=drive.tree(c["id"], "client"))
 
 
 @bp.post("/portal/api/drive/<int:fid>/delete")
@@ -940,6 +1038,7 @@ def portal_inbox_send():
         return redirect("/portal/?note=Write+a+message+first.#inbox")
     add_message(c["id"], "client", c["contact_name"] or c["contact_email"], S.clip(request.form.get("subject"), 200), body)
     commit()
+    activity.log(c["id"], "action", "inbox", "Sent a message")
     return redirect("/portal/?note=Message+sent.#inbox")
 
 
@@ -1007,8 +1106,11 @@ ADMIN_LIST = U.head("clients", "Clients") + """
 </tbody></table></div>{% else %}<div class="card empty">No clients yet. Add your first client to give them a portal login and share documents.</div>{% endif %}
 </section>""" + ADMIN_FOOT
 
-TABS_SRC = """{% macro ctabs(cid, active) %}<nav class="ctabs" aria-label="Client sections"><a href="/admin/clients/{{ cid }}"{% if active == 'profile' %} class="on" aria-current="page"{% endif %}>Profile and files</a><a href="/admin/clients/{{ cid }}/inbox"{% if active == 'inbox' %} class="on" aria-current="page"{% endif %}>Inbox{% set n = client_unread(cid) %}{% if n %} <span class="n">{{ n }}</span>{% endif %}</a></nav>
+TABS_SRC = """{% macro ctabs(cid, active) %}<nav class="ctabs" aria-label="Client sections"><a href="/admin/clients/{{ cid }}"{% if active == 'profile' %} class="on" aria-current="page"{% endif %}>Profile and files</a><a href="/admin/clients/{{ cid }}/inbox"{% if active == 'inbox' %} class="on" aria-current="page"{% endif %}>Inbox{% set n = client_unread(cid) %}{% if n %} <span class="n">{{ n }}</span>{% endif %}</a><a href="/admin/clients/{{ cid }}/activity"{% if active == 'activity' %} class="on" aria-current="page"{% endif %}>Portal activity</a>
+<form method="post" action="/admin/clients/{{ cid }}/view-as" target="_blank" class="viewas"><button class="ghost" type="submit" title="Opens their portal in a new tab, signed in as them. Read-only.">""" + U.ico("portal", 16) + """ View portal as client</button></form></nav>
 <style>.ctabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 18px}.ctabs a{padding:10px 14px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
+.ctabs .viewas{margin:0 0 6px auto;align-self:center}.ctabs .viewas button{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;font-size:13.5px}
+@media (max-width:640px){.ctabs{flex-wrap:wrap}.ctabs .viewas{margin:6px 0 8px;width:100%}}
 .ctabs a:hover{color:var(--ink)}.ctabs a.on{color:var(--ink);border-bottom-color:var(--cyan)}.ctabs .n{font:600 11px var(--fm);background:var(--cyan);color:#062028;border-radius:999px;padding:2px 7px}</style>{% endmacro %}
 """
 
@@ -1064,10 +1166,6 @@ ADMIN_CLIENT = U.head("clients", "Client") + TABS_SRC + """
   <div class="drop" data-kind="legal" tabindex="0" role="button" style="margin-top:10px"><b>Drop files here</b> or click to choose<br><small>Up to 25 MB each</small></div>
   <ul class="files">{% for f in files if f.kind == 'legal' %}<li><span class="ic">{{ f.name|ext }}</span><span class="nm"><a href="/admin/clients/{{ cid }}/files/{{ f.id }}" target="_blank">{{ f.name }}</a><small>{{ f.category }} · {{ f.size|fsize }} · {{ f.at[:10] }}</small></span><button class="ghost" data-del="{{ f.id }}" type="button">Delete</button></li>{% else %}<li class="empty" style="display:block">No documents yet.</li>{% endfor %}</ul>
  </div>
- <div class="card"><p class="mono">Client drive</p><p class="empty" style="margin:4px 0 12px;font-size:14px">Files in the client's drive. They can add their own; files you add here appear there too.</p>
-  <div class="drop" data-kind="drive" tabindex="0" role="button"><b>Drop files here</b> or click to choose</div>
-  <ul class="files">{% for f in files if f.kind == 'drive' %}<li><span class="ic">{{ f.name|ext }}</span><span class="nm"><a href="/admin/clients/{{ cid }}/files/{{ f.id }}" target="_blank">{{ f.name }}</a><small>{{ 'From client' if f.uploaded_by == 'client' else 'From you' }} · {{ f.size|fsize }} · {{ f.at[:10] }}</small></span><button class="ghost" data-del="{{ f.id }}" type="button">Delete</button></li>{% else %}<li class="empty" style="display:block">The drive is empty.</li>{% endfor %}</ul>
- </div>
  <div class="card"><p class="mono">Invoices (Stripe)</p>
   {% if not stripe %}<p class="empty" style="font-size:14px">Stripe isn't connected. Add STRIPE_SECRET_KEY in Render to show invoices here and in the client portal.</p>
   {% elif not c.stripe_customer_id %}<p class="empty" style="font-size:14px">No Stripe customer linked yet. New clients get one automatically; for this one, create it now.</p><form method="post" action="/admin/clients/{{ cid }}/stripe"><button type="submit">Create Stripe customer</button></form>
@@ -1081,6 +1179,14 @@ ADMIN_CLIENT = U.head("clients", "Client") + TABS_SRC + """
 </div></div>
 <input type="file" id="picker" multiple hidden>
 </section>
+{% if cid %}<section id="drive"><h2 style="font-size:19px">Client drive</h2><p class="empty" style="margin:-6px 0 12px;font-size:14px">The client sees these files and folders under Your Drive. They can add files and folders of their own; you can organise everything.</p>
+<div id="drive-root"></div></section>
+<style>""" + drive.WIDGET_CSS + """</style>
+<script>""" + drive.WIDGET_JS + """
+amDrive(document.getElementById('drive-root'),{tree:{{ drive_tree|safe }},key:'admin-{{ cid }}',label:'Drive',
+  opUrl:'/admin/clients/{{ cid }}/drive/op',treeUrl:'/admin/clients/{{ cid }}/drive',uploadUrl:'/admin/clients/{{ cid }}/files',
+  delUrl:function(id){return '/admin/clients/{{ cid }}/files/'+id+'/delete'}});
+</script>{% endif %}
 <script>
 (function(){
   var cid={{ cid|tojson }}; if(!cid) return;
@@ -1419,7 +1525,13 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 .kpi.hi{border-color:rgba(127,211,228,.45);background:linear-gradient(160deg,rgba(127,211,228,.1),var(--surface) 70%)}.kpi.hi b{color:var(--cyan)}
 td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5px;line-height:1.55}
 .kv{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 14px;font-size:14.5px;margin:0}.kv dt{color:var(--faint)}.kv dd{margin:0}
+.asbar{position:sticky;top:0;z-index:30;background:#F0C987;color:#2e1f05;font:500 14px var(--fb)}
+.asbar .in{max-width:1240px;margin:0 auto;padding:8px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.asbar form{margin:0 0 0 auto}.asbar button{font:600 13.5px var(--fb);background:#2e1f05;color:#F0C987;border:0;border-radius:7px;padding:7px 14px;cursor:pointer}
+.asbar + .top{top:44px}
 </style></head><body>
+{% if viewing_as %}<div class="asbar" role="status"><div class="in"><span><b>Viewing as {{ c.contact_name or c.company }}</b> ({{ c.company }}). This is exactly what they see. Changes are turned off and nothing is tracked.</span>
+<form method="post" action="/portal/logout"><button type="submit">Back to admin</button></form></div></div>{% endif %}
 <header class="top"><div class="in"><a href="/" aria-label="Automagic home"><img src="/brand/wordmark-light.svg" alt="Automagic"></a>
 <div class="who">{% if c.logo %}<span class="hlogo"><img src="/portal/logo?v={{ c.logo }}" alt=""></span>{% endif %}<span><b>{{ c.company }}</b>{{ c.contact_email }}</span></div>
 <form method="post" action="/portal/logout" style="margin:0"><button class="btn btn-g" type="submit">Sign out</button></form></div></header>
@@ -1521,11 +1633,9 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </section>
 
 <section class="view" id="v-drive" hidden>
- <div class="vh"><span class="label">Your Drive</span><h2>Share files with our team</h2><p>Upload anything we should see: data exports, briefs, templates. Up to 25 MB per file.</p></div>
- <div class="drop" tabindex="0" role="button">{{ icon('drive', 30)|safe }}<br><b>Drop files here</b> or click to choose</div>
+ <div class="vh"><span class="label">Your Drive</span><h2>Share files with our team</h2><p>Upload anything we should see: data exports, briefs, templates. Create folders to keep things organised. Up to 25 MB per file.</p></div>
  <input type="file" id="picker" multiple hidden>
- {% if drive %}<div class="docs">{% for f in drive %}<a class="doc" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener"><span class="fi {{ (f.name|ext)|lower }}"><i>{{ f.name|ext }}</i></span><span class="n">{{ f.name }}</span><small>{{ 'You' if f.uploaded_by == 'client' else 'Automagic' }} · {{ f.at[:10] }}</small>{% if f.uploaded_by == 'client' %}<button class="x" type="button" data-del="{{ f.id }}" aria-label="Delete {{ f.name }}">×</button>{% endif %}</a>{% endfor %}</div>
- {% else %}<div class="empty">Your drive is empty.</div>{% endif %}
+ <div id="drive-root"></div>
 </section>
 
 <section class="view" id="v-pricing" hidden>
@@ -1607,7 +1717,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </div></footer>
 <script>
 (function(){
-  var views=['home','inbox','consultant','legal','invoices','drive','pricing','roi','settings'];
+  var views=window.AM_VIEWS=['home','inbox','consultant','legal','invoices','drive','pricing','roi','settings'];
   function show(){var v=(location.hash||'#home').slice(1); if(views.indexOf(v)<0) v='home';
     views.forEach(function(n){document.getElementById('v-'+n).hidden=n!==v});
     document.querySelectorAll('.side a').forEach(function(a){a.classList.toggle('on',a.dataset.v===v); if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current')});
@@ -1647,5 +1757,15 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
     if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='Delete?';return}
     fetch('/portal/api/drive/'+b.dataset.del+'/delete',{method:'POST',credentials:'same-origin'}).then(function(){location.reload()});});});
 })();
+</script>
+{% if not viewing_as %}<script>""" + activity.TRACKER_JS + """</script>{% endif %}
+<style>""" + drive.WIDGET_CSS + """</style>
+<script>""" + drive.WIDGET_JS + """
+amDrive(document.getElementById('drive-root'),{tree:{{ drive_tree|safe }},key:'portal',label:'Your Drive',
+  opUrl:'/portal/api/drive/op',treeUrl:'/portal/api/drive/tree',uploadUrl:'/portal/api/drive',
+  delUrl:function(id){return '/portal/api/drive/'+id+'/delete'},onEvent:function(k,l,d){if(!window.amTrack)return;
+    var n=d?((d.files||[]).length+(d.folders||[]).length):0;
+    var t={mkdir:'Created folder “'+l+'”',rename:'Renamed a folder to “'+l+'”',rmdir:'Deleted a folder','open-folder':'Opened folder “'+l+'”',
+      move:'Moved '+n+(n===1?' item':' items'),'delete':'Deleted “'+l+'”'}[k];if(t)amTrack('action',t)}});
 </script>
 </body></html>"""

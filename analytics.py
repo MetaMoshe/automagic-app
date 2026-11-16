@@ -4,6 +4,7 @@
                                   entry and exit pages, referrers, campaigns, devices, places
   /admin/analytics/page?path=...  one page: time, scroll reach, sections read, where people came from and went next
   /admin/visitors/journey?email=  one signed-in visitor: every session and page, with time and scroll
+  /admin/clients/<id>/activity    one client's use of their portal: logins, time per section, clicks, downloads
 
 Data comes from the `visits` table. src/beacon.js records one row per page view and then updates it
 with active reading time (seconds), scroll depth (%) and the sections read. Rows recorded before
@@ -16,7 +17,9 @@ from datetime import datetime, timedelta, timezone
 
 from flask import redirect, render_template_string, request
 
+import activity as A
 import admin_ui as U
+import portal as P
 import server as S
 from admin import bp, guard
 
@@ -164,7 +167,7 @@ def analytics():
     n_sess = len(sess)
     since_d = since(days)
     return render_template_string(
-        ANALYTICS, days=days, periods=PERIODS, series=series, peak=peak, pages=pages[:25], dur=dur,
+        ANALYTICS, portal=portal_rows(days), days=days, periods=PERIODS, series=series, peak=peak, pages=pages[:25], dur=dur,
         views=len(views), visitors=len({v.vid for v in views}), e=e,
         sessions=n_sess, per_session=(sum(len(s) for s in sess.values()) / n_sess) if n_sess else None,
         sess_time=median([sum(v.active or 0 for v in s) for s in sess.values()]),
@@ -268,6 +271,36 @@ def journey():
         pages=sorted(pages.items(), key=lambda x: (-x[1][1], -x[1][0])))
 
 
+# ---------------------------------------------------------------- client portal
+def portal_rows(days):
+    """One row per client who could sign in or used the portal in the period."""
+    evs = defaultdict(list)
+    for e in A.events(days=days):
+        evs[e["client_id"]].append(e)
+    rows = []
+    for cid, company, enabled, last in S.q("SELECT id, company, portal_enabled, last_login FROM clients ORDER BY LOWER(company)"):
+        if not enabled and cid not in evs:
+            continue
+        sm = A.summary(evs.get(cid, []))
+        rows.append({"id": cid, "company": company, "last": last, "top": sm["by_view"][0][0] if sm["by_view"] and sm["by_view"][0][1] else "", **sm})
+    rows.sort(key=lambda r: (-r["time"], -(r["logins"]), r["company"].lower()))
+    return rows
+
+
+@bp.get("/admin/clients/<int:cid>/activity")
+def client_activity(cid):
+    r = guard()
+    if r:
+        return r
+    c = P.client_row(cid)
+    if not c:
+        return redirect("/admin/clients")
+    days = period()
+    evs = A.events(cid, days)
+    return render_template_string(ACTIVITY, c=c, cid=cid, days=days, periods=PERIODS, dur=dur, s=A.summary(evs),
+                                  sess=A.sessions(evs), views=A.VIEWS)
+
+
 def people_time():
     """Email -> total active seconds, for the Access and visitors table."""
     return {e: t or 0 for e, t in S.q("SELECT email, SUM(active) FROM visits WHERE email IS NOT NULL GROUP BY email")}
@@ -327,6 +360,10 @@ ANALYTICS = BARS + U.head("chart", "Analytics") + CSS + """
 {% for p in pages %}<tr class="rowlink" onclick="location.href=this.querySelector('a').href"><td><a href="/admin/analytics/page?path={{ p.path|urlencode }}&days={{ days }}">{{ p.path }}</a></td><td class="n">{{ p.views }}</td><td class="n">{{ p.visitors }}</td><td class="n">{{ dur(p.median) }}</td>
 <td class="n">{% if p.scroll is not none %}{{ p.scroll|round|int }}%<span class="meter"><b style="width:{{ p.scroll|round }}%"></b></span>{% else %}–{% endif %}</td><td class="n">{{ (p.end ~ '%') if p.end is not none else '–' }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="card empty">No visits yet.</div>{% endif %}</section>
+<section><h2 style="font-size:19px">Client portal</h2><p class="sub" style="margin:-6px 0 12px">How your clients use their portal in this period. Click a client for their sessions, time per section and clicks.</p>
+{% if portal %}<div class="tw"><table><thead><tr><th>Client</th><th class="n">Logins</th><th>Last login (UTC)</th><th class="n">Time in portal</th><th>Most used</th><th class="n">Clicks</th><th class="n">Files opened</th></tr></thead><tbody>
+{% for p in portal %}<tr class="rowlink" onclick="location.href=this.querySelector('a').href"><td><a href="/admin/clients/{{ p.id }}/activity?days={{ days }}">{{ p.company }}</a></td><td class="n">{{ p.logins }}</td><td class="nw">{{ p.last[:16]|replace('T',' ') if p.last else 'Never' }}</td><td class="n">{{ dur(p.time) if p.time else '–' }}</td><td>{{ p.top or '–' }}</td><td class="n">{{ p.n_clicks }}</td><td class="n">{{ p.downloads }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="card empty">No clients have portal access yet.</div>{% endif %}</section>
 <section><div class="grid3">
 <div class="card"><p class="mono">Entry pages · sessions</p>{{ bars(entries, 'No sessions yet.', True) }}</div>
 <div class="card"><p class="mono">Exit pages · sessions</p>{{ bars(exits, 'No sessions yet.', True) }}</div>
@@ -390,4 +427,28 @@ JOURNEY = U.head("visitors", "Visitor journey") + CSS + """
 {% if leads %}<p class="mono" style="margin-top:20px">Book a Call</p><ul class="bars">{% for l in leads %}<li><span><a href="/admin/leads/{{ l[0] }}">{{ l[1][:16]|replace('T',' ') }}</a></span><span>{{ l[2] or '' }}</span></li>{% endfor %}</ul>{% endif %}</div>
 </div></section>
 <p class="mono" style="margin:32px 0 0;text-transform:none;letter-spacing:0">Includes this browser's visits before they gave their email. Time counts only active reading. Times are UTC.</p>
+""" + U.FOOT
+
+STEP_ICON = {"view": "Opened", "click": "Clicked", "download": "", "action": ""}
+
+ACTIVITY = P.TABS_SRC.replace("{% macro", "{% macro", 1) + U.head("clients", "Portal activity") + CSS + """
+<section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company }}</h2>
+{{ ctabs(cid, 'activity') }}
+""" + PERIOD_CHIPS + """
+<div class="tiles">
+<div class="tile"><span class="mono">Logins</span><b>{{ s.logins }}</b><small>last {{ c.last_login[:16]|replace('T',' ') ~ ' UTC' if c.last_login else 'never' }}</small></div>
+<div class="tile"><span class="mono">Time in portal</span><b>{{ dur(s.time) if s.time else '–' }}</b><small>active time, {{ s.sessions }} {{ 'session' if s.sessions == 1 else 'sessions' }}</small></div>
+<div class="tile"><span class="mono">Clicks</span><b>{{ s.n_clicks }}</b><small>links and buttons</small></div>
+<div class="tile"><span class="mono">Files opened</span><b>{{ s.downloads }}</b><small>project docs and drive</small></div>
+</div></section>
+<section><div class="grid2">
+<div class="card"><p class="mono">Time by section</p>{% set tv = s.by_view|selectattr(1)|list %}{% if tv %}<ul class="bars">{% for k, n in tv %}<li><span>{{ k }}</span><span>{{ dur(n) }}</span><i><b style="width:{{ (n / tv[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No time recorded yet.</p>{% endif %}</div>
+<div class="card"><p class="mono">What they clicked and opened</p>{% if s.clicks %}<ul class="bars">{% for k, n in s.clicks[:12] %}<li><span>{{ k }}</span><span>{{ n }}</span><i><b style="width:{{ (n / s.clicks[0][1] * 100)|round }}%"></b></i></li>{% endfor %}</ul>{% else %}<p class="empty">No clicks recorded yet.</p>{% endif %}</div>
+</div></section>
+<section><h2 style="font-size:19px">Sessions, newest first</h2>
+{% for x in sess %}<div class="sess"><header><b>{{ x.start[:10] }} · {{ x.start[11:16] }}</b><span>{% if x.time %}{{ dur(x.time) }} active{% else %}no active time{% endif %}{% if x.device %} · {{ x.device }}{% endif %}</span></header>
+<ol class="steps">{% for e in x.steps %}<li><time>{{ e.at[11:16] }}</time><span class="pth">{% if e.kind == 'view' %}Opened <b>{{ views.get(e.view, e.view) }}</b>{% elif e.kind == 'click' %}Clicked “{{ e.label or e.target }}”{% if e.view %}<small>in {{ views.get(e.view, e.view) }}{% if e.target and e.target != e.label %} · {{ e.target }}{% endif %}</small>{% endif %}{% else %}{{ e.label }}{% endif %}</span>
+<span class="st">{% if e.kind == 'view' and e.secs %}{{ dur(e.secs) }}{% endif %}</span></li>{% else %}<li><time></time><span class="pth">Signed in, nothing else recorded</span><span class="st"></span></li>{% endfor %}</ol></div>
+{% else %}<div class="card empty">No portal activity in this period.{% if not c.portal_enabled %} Portal access is off for this client.{% endif %}</div>{% endfor %}</section>
+<p class="mono" style="margin:32px 0 0;text-transform:none;letter-spacing:0">Time counts only while the portal tab was open and the client was active within the last minute. Your own visits with View portal as client aren't recorded. Times are UTC.</p>
 """ + U.FOOT
