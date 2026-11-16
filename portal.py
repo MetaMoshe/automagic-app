@@ -14,7 +14,8 @@ Files live on disk under $DATA_DIR/files/<client id>/ with random names; metadat
 the client_files table. Invoices come from Stripe when STRIPE_SECRET_KEY is set and the
 client has a Stripe customer id.
 """
-import base64, json, mimetypes, os, secrets, sqlite3, time, urllib.error, urllib.parse, urllib.request
+import base64, json, mimetypes, os, re, secrets, sqlite3, time, urllib.error, urllib.parse, urllib.request
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from flask import Blueprint, abort, jsonify, redirect, render_template_string, request, send_file, session
@@ -24,6 +25,7 @@ from werkzeug.utils import secure_filename
 import activity
 import admin_ui as U
 import drive
+import reports
 import server as S
 
 bp = Blueprint("portal", __name__)
@@ -94,6 +96,7 @@ def init():
     os.makedirs(FILES_DIR, exist_ok=True)
     drive.init()
     activity.init()
+    reports.init()
 
 
 def commit():
@@ -816,6 +819,86 @@ def admin_client_inbox(cid):
                                   sent=request.args.get("sent"), err=request.args.get("err"))
 
 
+# ---------------------------------------------------------------- project reports
+@bp.get("/admin/clients/<int:cid>/reports")
+def admin_reports(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    if not c:
+        abort(404)
+    return render_template_string(ADMIN_REPORTS, c=c, cid=cid, items=reports.for_client(cid), note=request.args.get("note", "")[:200])
+
+
+@bp.route("/admin/clients/<int:cid>/reports/new", methods=["GET", "POST"])
+@bp.route("/admin/clients/<int:cid>/reports/<int:rid>", methods=["GET", "POST"])
+def admin_report(cid, rid=None):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    rep = reports.get(cid, rid) if rid else None
+    if not c or (rid and not rep):
+        abort(404)
+    if not rep:
+        today = datetime.now(timezone.utc).date()
+        monday = today - timedelta(days=today.weekday())
+        rep = {"id": None, "title": f"Weekly report · w/c {monday.day} {monday.strftime('%b %Y')}", "period": monday.isoformat(),
+               "body": "", "status": "draft", "published_at": None, "read_client": None, "updated": None}
+    err = ""
+    if request.method == "POST":
+        f, action = request.form, request.form.get("action", "save")
+        if action == "delete" and rid:
+            S.q("DELETE FROM reports WHERE id = ? AND client_id = ?", (rid, cid))
+            commit()
+            return redirect(f"/admin/clients/{cid}/reports?note=Report+deleted.")
+        rep.update(title=S.clip(f.get("title"), 200), period=S.clip(f.get("period"), 10), body=str(f.get("body") or "")[:60000])
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", rep["period"] or ""):
+            rep["period"] = ""
+        status = {"publish": "published", "unpublish": "draft"}.get(action, rep["status"] or "draft")
+        if not rep["title"]:
+            err = "Give the report a title."
+        elif status == "published" and not rep["body"].strip():
+            err = "Write the report before publishing it."
+        else:
+            pub = rep["published_at"] or (S.now() if status == "published" else None)
+            if rid:
+                S.q("UPDATE reports SET title = ?, period = ?, body = ?, status = ?, published_at = ?, updated = ? WHERE id = ? AND client_id = ?",
+                    (rep["title"], rep["period"] or None, rep["body"], status, pub, S.now(), rid, cid))
+            else:
+                S.q("INSERT INTO reports (client_id, created, updated, title, period, body, status, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (cid, S.now(), S.now(), rep["title"], rep["period"] or None, rep["body"], status, pub))
+                rid = S.q("SELECT MAX(id) FROM reports WHERE client_id = ?", (cid,), one=True)[0]
+            commit()
+            msg = {"publish": "Published. The client sees it under Project reports.", "unpublish": "Unpublished. It's a draft again and hidden from the client."}.get(action, "Saved.")
+            return redirect(f"/admin/clients/{cid}/reports/{rid}?note=" + urllib.parse.quote(msg))
+    return render_template_string(ADMIN_REPORT, c=c, cid=cid, rid=rid, rep=rep, err=err, note=request.args.get("note", "")[:200],
+                                  preview=reports.render(rep["body"]))
+
+
+@bp.post("/admin/clients/<int:cid>/reports/preview")
+def admin_report_preview(cid):
+    r = admin_only()
+    if r:
+        return r
+    return jsonify(html=reports.render(str((request.get_json(silent=True) or {}).get("body") or "")[:60000]))
+
+
+@bp.post("/portal/api/reports/<int:rid>/read")
+def portal_report_read(rid):
+    c = current_client()
+    if not c:
+        abort(401)
+    rep = reports.get(c["id"], rid)
+    if rep and rep["status"] == "published":
+        if not rep["read_client"]:
+            S.q("UPDATE reports SET read_client = ? WHERE id = ?", (S.now(), rid))
+            commit()
+        activity.log(c["id"], "action", "reports", "Read report: " + rep["title"])
+    return jsonify(ok=True)
+
+
 @bp.route("/admin/pricing", methods=["GET", "POST"])
 def admin_pricing():
     r = admin_only()
@@ -955,7 +1038,7 @@ def portal():
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
     msgs = messages_for(c["id"])
     return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), stage=stage_card(c.get("phase") if c.get("phase") in PHASES else "Introduction", consultant_for(c)), msgs=msgs, unread=sum(1 for m in msgs if m["sender"] == "consultant" and not m["read_client"]), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
-                                  drive=files_for(c["id"], "drive"), drive_tree=drive.tree_json(c["id"], "client"), viewing_as=bool(session.get("view_as")), inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
+                                  drive=files_for(c["id"], "drive"), drive_tree=drive.tree_json(c["id"], "client"), viewing_as=bool(session.get("view_as")), reps=[dict(x, html=reports.render(x["body"])) for x in reports.for_client(c["id"], True)], inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
 
@@ -1106,7 +1189,7 @@ ADMIN_LIST = U.head("clients", "Clients") + """
 </tbody></table></div>{% else %}<div class="card empty">No clients yet. Add your first client to give them a portal login and share documents.</div>{% endif %}
 </section>""" + ADMIN_FOOT
 
-TABS_SRC = """{% macro ctabs(cid, active) %}<nav class="ctabs" aria-label="Client sections"><a href="/admin/clients/{{ cid }}"{% if active == 'profile' %} class="on" aria-current="page"{% endif %}>Profile and files</a><a href="/admin/clients/{{ cid }}/inbox"{% if active == 'inbox' %} class="on" aria-current="page"{% endif %}>Inbox{% set n = client_unread(cid) %}{% if n %} <span class="n">{{ n }}</span>{% endif %}</a><a href="/admin/clients/{{ cid }}/activity"{% if active == 'activity' %} class="on" aria-current="page"{% endif %}>Portal activity</a>
+TABS_SRC = """{% macro ctabs(cid, active) %}<nav class="ctabs" aria-label="Client sections"><a href="/admin/clients/{{ cid }}"{% if active == 'profile' %} class="on" aria-current="page"{% endif %}>Profile and files</a><a href="/admin/clients/{{ cid }}/inbox"{% if active == 'inbox' %} class="on" aria-current="page"{% endif %}>Inbox{% set n = client_unread(cid) %}{% if n %} <span class="n">{{ n }}</span>{% endif %}</a><a href="/admin/clients/{{ cid }}/reports"{% if active == 'reports' %} class="on" aria-current="page"{% endif %}>Reports</a><a href="/admin/clients/{{ cid }}/activity"{% if active == 'activity' %} class="on" aria-current="page"{% endif %}>Portal activity</a>
 <form method="post" action="/admin/clients/{{ cid }}/view-as" target="_blank" class="viewas"><button class="ghost" type="submit" title="Opens their portal in a new tab, signed in as them. Read-only.">""" + U.ico("portal", 16) + """ View portal as client</button></form></nav>
 <style>.ctabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 18px}.ctabs a{padding:10px 14px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
 .ctabs .viewas{margin:0 0 6px auto;align-self:center}.ctabs .viewas button{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;font-size:13.5px}
@@ -1243,6 +1326,69 @@ ADMIN_INBOX = U.head("clients", "Client inbox") + TABS_SRC + """
 @media (max-width:640px){.m{max-width:100%}}</style>
 </section>""" + ADMIN_FOOT
 
+ADMIN_REPORTS = U.head("clients", "Project reports") + TABS_SRC + """
+<section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company }}</h2>
+{{ ctabs(cid, 'reports') }}
+{% if note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+<div class="row" style="justify-content:space-between;margin-bottom:14px"><p class="empty" style="margin:0;font-size:14px">Weekly reports and other written updates. Published reports appear under Project reports in {{ c.contact_name or 'the client' }}'s portal; drafts stay here.</p>
+<a class="btn" href="/admin/clients/{{ cid }}/reports/new">New report</a></div>
+{% if items %}<div class="tw"><table><thead><tr><th>Report</th><th>Period</th><th>Status</th><th>Read by client</th><th>Last updated (UTC)</th></tr></thead><tbody>
+{% for x in items %}<tr class="rowlink" onclick="location.href=this.querySelector('a').href"><td><a href="/admin/clients/{{ cid }}/reports/{{ x.id }}">{{ x.title }}</a></td><td class="nw">{{ x.period or '–' }}</td>
+<td>{% if x.status == 'published' %}<span class="pill won">Published</span>{% else %}<span class="pill off">Draft</span>{% endif %}</td>
+<td class="nw">{{ x.read_client[:16]|replace('T',' ') if x.read_client else ('Not yet' if x.status == 'published' else '–') }}</td><td class="nw">{{ (x.updated or x.created)[:16]|replace('T',' ') }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="card empty">No reports yet. Write the first one with New report.</div>{% endif %}
+{% if not c.portal_enabled %}<p class="err" style="margin-top:14px">Portal access is off for this client, so they can't see reports yet. Turn it on under Profile and files.</p>{% endif %}
+</section>""" + ADMIN_FOOT
+
+ADMIN_REPORT = U.head("clients", "Report") + TABS_SRC + """
+<section><p><a href="/admin/clients/{{ cid }}/reports">← {{ c.company }} reports</a></p><h2>{{ rep.title if rid else 'New report' }}</h2>
+{{ ctabs(cid, 'reports') }}
+{% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+<form method="post" class="redit">
+ <div class="card" style="display:grid;gap:14px">
+  <div class="rmeta"><div><label class="f" for="title">Title</label><input type="text" id="title" name="title" value="{{ rep.title }}" maxlength="200" required></div>
+   <div><label class="f" for="period">Week of</label><input type="date" id="period" name="period" value="{{ rep.period or '' }}"></div></div>
+  <div><div class="row" style="justify-content:space-between;margin-bottom:6px"><label class="f" for="body" style="margin:0">Report</label>
+   <nav class="rtabs" aria-label="Editor"><button type="button" class="on" data-t="write">Write</button><button type="button" data-t="preview">Preview</button><button type="button" data-t="split">Side by side</button></nav></div>
+   <div class="rpanes split"><textarea id="body" name="body" spellcheck="true" placeholder="Paste from Notion or Google Docs, or write here.">{{ rep.body }}</textarea>
+   <div class="rbody rprev card" id="prev" aria-live="polite">{{ preview|safe }}</div></div>
+   <p class="empty" style="font-size:12.5px;margin:8px 0 0">Formatting: <code>## Heading</code> · <code>**bold**</code> · <code>*italic*</code> · <code>- bullet</code> · <code>1. numbered</code> · <code>| table | row |</code> · <code>[link](https://…)</code> · <code>---</code> line. Pasting from Notion keeps tables, toggles and lists.</p></div>
+  <div class="row">
+   <button type="submit" name="action" value="save" class="ghost">{{ 'Save draft' if rep.status != 'published' else 'Save changes' }}</button>
+   {% if rep.status == 'published' %}<button type="submit" name="action" value="unpublish" class="ghost">Unpublish</button><span class="pill won">Published {{ rep.published_at[:10] if rep.published_at }}</span>{% if rep.read_client %}<span class="empty" style="font-size:13px">Read by the client {{ rep.read_client[:16]|replace('T',' ') }} UTC</span>{% endif %}
+   {% else %}<button type="submit" name="action" value="publish">Publish to client</button><span class="pill off">Draft</span>{% endif %}
+   {% if rid %}<button type="submit" name="action" value="delete" class="danger" style="margin-left:auto" onclick="return confirm('Delete this report? This can\'t be undone.')">Delete</button>{% endif %}
+  </div>
+ </div>
+</form>
+<style>""" + reports.CSS + """
+.rmeta{display:grid;grid-template-columns:minmax(0,1fr) 200px;gap:14px}@media (max-width:640px){.rmeta{grid-template-columns:minmax(0,1fr)}}
+.rtabs{display:flex;gap:2px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:2px}
+.rtabs button{background:transparent;color:var(--muted);border:0;border-radius:7px;padding:5px 12px;font:500 13px Inter,sans-serif}
+.rtabs button.on{background:var(--cyan-soft);color:var(--ink)}
+.rpanes{display:grid;gap:14px}.rpanes.split{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.rpanes textarea{min-height:560px;font:13.5px/1.6 "IBM Plex Mono",ui-monospace,monospace;resize:vertical}
+.rpanes .rprev{min-height:560px;max-height:80vh;overflow:auto;background:var(--bg)}
+.rpanes.write .rprev,.rpanes.preview textarea{display:none}
+@media (max-width:1100px){.rpanes.split{grid-template-columns:minmax(0,1fr)}.rpanes.split .rprev{min-height:0}}
+</style>
+<script>
+(function(){
+  var ta=document.getElementById('body'),pv=document.getElementById('prev'),panes=document.querySelector('.rpanes'),t=null;
+  var mode='split';try{mode=localStorage.getItem('am-rmode')||'split'}catch(e){}
+  function set(m){mode=m;panes.className='rpanes '+m;document.querySelectorAll('.rtabs button').forEach(function(b){b.classList.toggle('on',b.dataset.t===m)});try{localStorage.setItem('am-rmode',m)}catch(e){}if(m!=='write')render()}
+  function render(){fetch('/admin/clients/{{ cid }}/reports/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:ta.value}),credentials:'same-origin'})
+    .then(function(r){return r.json()}).then(function(j){pv.innerHTML=j.html||'<p class="empty">Nothing to preview yet.</p>'})}
+  document.querySelectorAll('.rtabs button').forEach(function(b){b.addEventListener('click',function(){set(b.dataset.t)})});
+  ta.addEventListener('input',function(){clearTimeout(t);if(mode!=='write')t=setTimeout(render,350)});
+  var dirty=false;ta.addEventListener('input',function(){dirty=true});document.getElementById('title').addEventListener('input',function(){dirty=true});
+  window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue=''}});
+  document.querySelector('.redit').addEventListener('submit',function(){dirty=false});
+  set(mode);
+})();
+</script>
+</section>""" + ADMIN_FOOT
+
 ADMIN_PRICING = U.head("pricing", "Pricing page") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Pricing page</h2></div>
 <p class="empty" style="margin:10px 0 16px">Edits the Engagement &amp; pricing page every client sees in their portal. Leave a title blank to hide that card or step. To see the result, sign in to the portal as a client (for example the demo client).{% if not custom %} You're seeing the default content.{% endif %}</p>
@@ -1321,6 +1467,7 @@ ICON = {
  "doc": '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8"/>',
  "card": '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>',
  "drive": '<path d="M3 7h6l2 2h10v10H3z"/>',
+ "report": '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
  "gear": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
  "mail": '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/>',
  "phone": '<path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 5a2 2 0 0 1 2-2z"/>',
@@ -1369,7 +1516,7 @@ h1,h2,h3{font-family:var(--fd);margin:0;letter-spacing:-.02em;text-wrap:balance}
 .btn-g{background:transparent;color:var(--ink);border-color:var(--line-2)}.btn-g:hover{border-color:var(--cyan)}
 .shell{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:230px minmax(0,1fr);gap:36px;padding:32px max(16px,env(safe-area-inset-right,0px)) 64px max(16px,env(safe-area-inset-left,0px))}
 .side{position:sticky;top:96px;align-self:start;display:grid;gap:4px}
-.side a{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500}
+.side a{position:relative;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500}
 .side a:hover{color:var(--ink);background:var(--surface)}.side a.on{color:var(--ink);background:var(--surface-2);box-shadow:inset 3px 0 0 var(--cyan)}
 .side a svg{flex:none}
 @media (max-width:900px){.shell{grid-template-columns:minmax(0,1fr);gap:20px;padding-top:16px}
@@ -1525,6 +1672,17 @@ td{padding:12px 14px;border-top:1px solid var(--line);white-space:nowrap}td.num{
 .kpi.hi{border-color:rgba(127,211,228,.45);background:linear-gradient(160deg,rgba(127,211,228,.1),var(--surface) 70%)}.kpi.hi b{color:var(--cyan)}
 td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5px;line-height:1.55}
 .kv{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 14px;font-size:14.5px;margin:0}.kv dt{color:var(--faint)}.kv dd{margin:0}
+.rlay{display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px;align-items:start}
+.rlay>div{min-width:0}
+@media (max-width:900px){.rlay{grid-template-columns:minmax(0,1fr)}.rlist{position:static}}
+.rlist{display:grid;gap:6px;position:sticky;top:84px}
+.rlist button{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 14px;color:var(--ink);cursor:pointer;font:inherit;display:grid;gap:2px}
+.rlist button:hover{border-color:var(--line-2)}.rlist button.on{border-color:var(--cyan);background:var(--surface-2)}
+.rlist b{font-weight:500;font-size:14.5px;line-height:1.35}.rlist button.un b{font-weight:600}.rlist small{color:var(--faint);font:500 11.5px var(--fm);letter-spacing:.04em}
+.newp{color:var(--cyan)}
+.rdoc{padding:28px 32px}.rdoc header{margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--line)}.rdoc header h3{font-size:24px;margin-top:6px}
+@media (max-width:640px){.rdoc{padding:20px 18px}}
+""" + reports.CSS + """
 .asbar{position:sticky;top:0;z-index:30;background:#F0C987;color:#2e1f05;font:500 14px var(--fb)}
 .asbar .in{max-width:1240px;margin:0 auto;padding:8px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .asbar form{margin:0 0 0 auto}.asbar button{font:600 13.5px var(--fb);background:#2e1f05;color:#F0C987;border:0;border-radius:7px;padding:7px 14px;cursor:pointer}
@@ -1541,6 +1699,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
  <a href="#inbox" data-v="inbox">{{ icon('mail')|safe }}Inbox{% if unread %}<span class="badge"><span class="sr">: </span>{{ unread }} new</span>{% endif %}</a>
  <a href="#consultant" data-v="consultant">{{ icon('user')|safe }}Your Consultant</a>
  <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Project docs</a>
+ <a href="#reports" data-v="reports">{{ icon('report')|safe }}Project reports{% set nr = reps|rejectattr('read_client')|list|length %}{% if nr %}<span class="badge"><span class="sr">: </span>{{ nr }} new</span>{% endif %}</a>
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
  <a href="#drive" data-v="drive">{{ icon('drive')|safe }}Your Drive</a>
  <a href="#pricing" data-v="pricing">{{ icon('tag')|safe }}Engagement & pricing</a>
@@ -1617,6 +1776,14 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
  {% if legal %}{% for cat, items in legal|groupby('category') %}<div class="group"><h3>{{ cat or 'Other' }}</h3><div class="docs">
   {% for f in items %}<a class="doc" href="/portal/files/{{ f.id }}" target="_blank" rel="noopener"><span class="fi {{ (f.name|ext)|lower }}"><i>{{ f.name|ext }}</i></span><span class="n">{{ f.name }}</span><small>{{ f.at[:10] }} · {{ f.size|fsize }}</small></a>{% endfor %}
  </div></div>{% endfor %}{% else %}<div class="empty">No documents yet. Proposals and agreements will appear here when we share them.</div>{% endif %}
+</section>
+
+<section class="view" id="v-reports" hidden>
+ <div class="vh"><span class="label">Project reports</span><h2>Progress on your project</h2><p>Weekly reports from {{ con.name.split(' ')[0] if con.name else 'your consultant' }} on what we did, what we found and what comes next.</p></div>
+ {% if reps %}<div class="rlay">
+  <nav class="rlist" aria-label="Reports">{% for x in reps %}<button type="button" data-r="{{ x.id }}" class="{{ 'un' if not x.read_client }}"><b>{{ x.title }}</b><small>{{ x.period or x.published_at[:10] }}{% if not x.read_client %} · <span class="newp">New</span>{% endif %}</small></button>{% endfor %}</nav>
+  <div>{% for x in reps %}<article class="card rdoc" id="rep-{{ x.id }}" hidden><header><span class="label">{{ x.period and ('Week of ' ~ x.period) or x.published_at[:10] }}</span><h3>{{ x.title }}</h3></header><div class="rbody">{{ x.html|safe }}</div></article>{% endfor %}</div>
+ </div>{% else %}<div class="empty">No reports yet. Your weekly project reports will appear here.</div>{% endif %}
 </section>
 
 <section class="view" id="v-invoices" hidden>
@@ -1717,7 +1884,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </div></footer>
 <script>
 (function(){
-  var views=window.AM_VIEWS=['home','inbox','consultant','legal','invoices','drive','pricing','roi','settings'];
+  var views=window.AM_VIEWS=['home','inbox','consultant','legal','reports','invoices','drive','pricing','roi','settings'];
   function show(){var v=(location.hash||'#home').slice(1); if(views.indexOf(v)<0) v='home';
     views.forEach(function(n){document.getElementById('v-'+n).hidden=n!==v});
     document.querySelectorAll('.side a').forEach(function(a){a.classList.toggle('on',a.dataset.v===v); if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current')});
@@ -1756,6 +1923,21 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
   document.querySelectorAll('.x[data-del]').forEach(function(b){b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();
     if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='Delete?';return}
     fetch('/portal/api/drive/'+b.dataset.del+'/delete',{method:'POST',credentials:'same-origin'}).then(function(){location.reload()});});});
+})();
+</script>
+<script>
+(function(){
+  var btns=document.querySelectorAll('.rlist button');if(!btns.length)return;
+  function open(id,user){btns.forEach(function(b){var on=b.dataset.r===id;b.classList.toggle('on',on);b.setAttribute('aria-current',on?'true':'false')});
+    document.querySelectorAll('.rdoc').forEach(function(a){a.hidden=a.id!=='rep-'+id});
+    var b=document.querySelector('.rlist button[data-r="'+id+'"]');
+    if(b&&location.hash==='#reports'){fetch('/portal/api/reports/'+id+'/read',{method:'POST',credentials:'same-origin'}).catch(function(){});
+      if(b.classList.contains('un')){b.classList.remove('un');var n=b.querySelector('.newp');if(n)n.remove();var bd=document.querySelector('.side a[data-v=reports] .badge');
+        if(bd){var left=document.querySelectorAll('.rlist button.un').length;if(left)bd.innerHTML='<span class="sr">: </span>'+left+' new';else bd.remove()}}}
+    if(user&&window.innerWidth<900){var a=document.getElementById('rep-'+id);if(a)a.scrollIntoView({behavior:'smooth',block:'start'})}}
+  btns.forEach(function(b){b.addEventListener('click',function(){open(b.dataset.r,true)})});
+  var first=btns[0].dataset.r;open(first);
+  window.addEventListener('hashchange',function(){if(location.hash==='#reports'){var on=document.querySelector('.rlist button.on');open(on?on.dataset.r:first)}});
 })();
 </script>
 {% if not viewing_as %}<script>""" + activity.TRACKER_JS + """</script>{% endif %}

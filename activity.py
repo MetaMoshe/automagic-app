@@ -20,7 +20,7 @@ from flask import request, session
 
 import server as S
 
-VIEWS = {"home": "Overview", "inbox": "Inbox", "consultant": "Your consultant", "legal": "Project docs",
+VIEWS = {"home": "Overview", "inbox": "Inbox", "consultant": "Your consultant", "legal": "Project docs", "reports": "Project reports",
          "invoices": "Invoices", "drive": "Your Drive", "pricing": "Engagement & pricing", "roi": "ROI calculator",
          "settings": "Settings", "how-we-work": "How we work"}
 KINDS = ("view", "time", "click", "action")
