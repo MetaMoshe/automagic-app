@@ -10,8 +10,9 @@ Environment:
   SECRET_KEY      signs the access and admin cookies (set a long random value)
   DATABASE_URL    Postgres URL; when unset, SQLite at $DATA_DIR/portfolio.db
   DATA_DIR        folder for the SQLite file (default ./data)
+  TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY  optional; Cloudflare Turnstile CAPTCHA on the portfolio email gate
 """
-import csv, gzip, hashlib, hmac, io, json, os, re, secrets, shutil, sqlite3, threading, time, urllib.request
+import csv, gzip, hashlib, hmac, io, json, os, re, secrets, shutil, sqlite3, threading, time, urllib.parse, urllib.request
 from functools import lru_cache
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -19,7 +20,7 @@ from urllib.parse import urlparse, quote
 
 from flask import (Flask, Response, abort, g, jsonify, redirect, render_template_string,
                    request, send_file, session)
-from itsdangerous import BadSignature, URLSafeSerializer
+from itsdangerous import BadSignature, SignatureExpired, URLSafeSerializer, URLSafeTimedSerializer
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -64,6 +65,9 @@ app.config.update(SECRET_KEY=SECRET_KEY, SESSION_COOKIE_HTTPONLY=True, SESSION_C
                   SESSION_COOKIE_NAME="am_admin", PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
                   MAX_CONTENT_LENGTH=27 * 1024 * 1024)  # uploads; other routes are capped at 64 KB in portal.guards
 signer = URLSafeSerializer(SECRET_KEY, salt="am-access")
+gate_signer = URLSafeTimedSerializer(SECRET_KEY, salt="am-gate")
+TURNSTILE_SITE_KEY = os.environ.get("TURNSTILE_SITE_KEY", "").strip()
+TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "").strip()
 
 EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$")
 BOT_RE = re.compile(r"bot|crawl|spider|slurp|preview|monitor|headless|curl|wget|python-requests", re.I)
@@ -235,6 +239,62 @@ def access_email():
         return None
 
 
+# ---------------------------------------------------------------- spam protection for the email gate
+# Four layers: a signed form token the page must fetch first (bots posting straight to the API fail),
+# a minimum time on the form, a hidden honeypot field, a per-IP hourly cap, and Cloudflare Turnstile
+# (a CAPTCHA, usually invisible) when TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are set.
+GATE_MIN_SECONDS = 2
+GATE_MAX_PER_HOUR = 5
+
+
+@app.get("/api/access/challenge")
+def api_access_challenge():
+    resp = jsonify(token=gate_signer.dumps({"n": secrets.token_hex(8)}), turnstile=TURNSTILE_SITE_KEY or None)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def turnstile_ok(token):
+    if not TURNSTILE_SECRET_KEY:
+        return True
+    if not token:
+        return False
+    try:
+        body = urllib.parse.urlencode({"secret": TURNSTILE_SECRET_KEY, "response": token[:2048],
+                                       "remoteip": client_ip() or ""}).encode()
+        req = urllib.request.Request("https://challenges.cloudflare.com/turnstile/v0/siteverify", data=body)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return bool(json.loads(r.read().decode()).get("success"))
+    except Exception:
+        app.logger.warning("Turnstile verification failed to run", exc_info=True)
+        return False
+
+
+def gate_check(d):
+    """None when the sign-up looks human, else the error to show."""
+    retry = "We couldn't verify the form. Please reload the page and try again."
+    if d.get("website"):  # honeypot, hidden from people
+        return retry
+    try:
+        gate_signer.loads(str(d.get("token") or ""), max_age=2 * 3600)
+    except SignatureExpired:
+        return "This page has been open a long time. Please reload it and try again."
+    except BadSignature:
+        return retry
+    try:
+        _, ts = gate_signer.loads(str(d.get("token")), return_timestamp=True)
+        if (datetime.now(timezone.utc) - ts).total_seconds() < GATE_MIN_SECONDS:
+            return retry
+    except Exception:
+        return retry
+    hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if q("SELECT COUNT(*) FROM access WHERE ip_hash = ? AND at >= ?", (ip_hash(), hour_ago), one=True)[0] >= GATE_MAX_PER_HOUR:
+        return "Too many sign-ups from your network. Please try again in an hour."
+    if not turnstile_ok(str(d.get("captcha") or "")):
+        return "Please complete the verification check and try again."
+    return None
+
+
 # ---------------------------------------------------------------- public API
 @app.post("/api/access")
 def api_access():
@@ -244,6 +304,9 @@ def api_access():
         return jsonify(ok=False, error="Please enter a valid email address."), 400
     if d.get("agreedTerms") is not True:
         return jsonify(ok=False, error="Please accept the terms to continue."), 400
+    err = gate_check(d)
+    if err:
+        return jsonify(ok=False, error=err), 400
     page = clip(d.get("page"), 300)
     country, city = where()
     q("INSERT INTO access (at, email, page, ua, ip_hash, country, city) VALUES (?, ?, ?, ?, ?, ?, ?)",

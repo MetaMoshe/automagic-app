@@ -70,6 +70,8 @@ button svg{width:16px;height:16px}
 :focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
 footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-block:18px calc(22px + env(safe-area-inset-bottom,0px));font-size:13px;color:var(--band-muted);border-top:1px solid rgba(255,255,255,.1)}
 footer a{color:inherit}
+.hp{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
+.captcha:not(:empty){margin:14px 0 4px;min-height:65px}
 </style>
 </head>
 <body>
@@ -97,6 +99,8 @@ footer a{color:inherit}
     <input id="email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@company.com" required>
     <label class="check"><input id="agree" name="agree" type="checkbox" required>
       <span>I agree to the <a href="/terms/" target="_blank">Terms of Access</a> and <a href="/terms/#privacy" target="_blank">Privacy Notice</a>, and will not copy or share any of the content.</span></label>
+    <div class="hp" aria-hidden="true"><label for="website">Website</label><input id="website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
+    <div id="captcha" class="captcha"></div>
     <p class="err" id="err" role="alert" aria-live="polite"></p>
     <button type="submit" id="go">Access the Automagic Portfolio
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
@@ -113,21 +117,33 @@ footer a{color:inherit}
   var q=new URLSearchParams(location.search), next=q.get('next')||'/work/';
   if(!/^\/(?!\/)/.test(next)) next='/work/';
   try{ var prev=JSON.parse(localStorage.getItem('am-access')||'null'); if(prev&&prev.email) em.value=prev.email; }catch(e){}
+  // Spam protection: a form token from the server, plus Cloudflare Turnstile when it is turned on.
+  var token='', tokenAt=Date.now(), captcha='', widget=null;
+  function challenge(){ return fetch('/api/access/challenge',{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()})
+    .then(function(j){ token=j.token||''; tokenAt=Date.now(); if(j.turnstile&&!widget) turnstile(j.turnstile); }).catch(function(){}); }
+  function turnstile(key){ window.amTs=function(){ widget=window.turnstile.render('#captcha',{sitekey:key,theme:'dark',
+      callback:function(t){captcha=t;err.textContent=''}, 'expired-callback':function(){captcha=''}}); };
+    var sc=document.createElement('script'); sc.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=amTs'; sc.async=true; document.head.appendChild(sc); }
+  challenge();
   f.addEventListener('submit',function(e){
     e.preventDefault();
     var v=em.value.trim();
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)){err.textContent='Please enter a valid email address.';em.focus();return}
     if(!ag.checked){err.textContent='Please accept the terms to continue.';ag.focus();return}
     err.textContent=''; go.disabled=true;
-    var rec={email:v, agreedTerms:true, page:next};
-    fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec),credentials:'same-origin'})
+    if(widget!==null&&!captcha){err.textContent='Please complete the verification check.';return}
+    var rec={email:v, agreedTerms:true, page:next, token:token, captcha:captcha, website:document.getElementById('website').value};
+    // The server rejects forms sent within 2 seconds of opening (a sign of bots), so a very quick person just waits a moment.
+    new Promise(function(ok){setTimeout(ok,Math.max(0,2500-(Date.now()-tokenAt)))})
+      .then(function(){return fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec),credentials:'same-origin'})})
       .then(function(r){return r.json().then(function(j){return {ok:r.ok&&j.ok,j:j}})})
       .then(function(res){
         if(!res.ok) throw new Error((res.j&&res.j.error)||'');
         try{ localStorage.setItem('am-access',JSON.stringify({email:v,at:new Date().toISOString()})); }catch(e){}
         location.replace(next);
       })
-      .catch(function(x){ err.textContent=(x&&x.message)||'Something went wrong. Please try again.'; go.disabled=false; });
+      .catch(function(x){ err.textContent=(x&&x.message)||'Something went wrong. Please try again.'; go.disabled=false;
+        captcha=''; if(widget!==null&&window.turnstile) window.turnstile.reset(widget); challenge(); });
   });
 })();
 </script>
