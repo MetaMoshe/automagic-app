@@ -65,7 +65,7 @@ tr.rowlink{cursor:pointer}tr.rowlink:hover td{background:rgba(127,207,224,.05)}
 .grid .full{grid-column:1/-1}
 @media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
 label.f{display:block;font:500 11px "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
-input[type=text],input[type=email],input[type=url],input[type=tel],input[type=password],input[type=search],select,textarea{width:100%;font:15px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px}
+input[type=text],input[type=email],input[type=url],input[type=tel],input[type=password],input[type=search],input[type=date],input[type=number],select,textarea{width:100%;font:15px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px}
 textarea{min-height:110px;resize:vertical}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan)}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}

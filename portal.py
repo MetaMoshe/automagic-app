@@ -18,7 +18,7 @@ import base64, json, mimetypes, os, re, secrets, sqlite3, time, urllib.error, ur
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
-from flask import Blueprint, abort, jsonify, redirect, render_template_string, request, send_file, session
+from flask import Blueprint, Response, abort, jsonify, redirect, render_template_string, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -26,6 +26,7 @@ import activity
 import admin_ui as U
 import drive
 import reports
+import roadmap
 import server as S
 
 bp = Blueprint("portal", __name__)
@@ -97,6 +98,7 @@ def init():
     drive.init()
     activity.init()
     reports.init()
+    roadmap.init()
 
 
 def commit():
@@ -306,7 +308,7 @@ def guards():
         if p.startswith("/portal/api/"):
             return jsonify(ok=False, error=msg, errors=[msg], saved=[]), 403
         return redirect("/portal/?note=" + urllib.parse.quote(msg))
-    uploads = p.startswith("/admin/clients/") and p.endswith("/files") or p == "/portal/api/drive" or p.startswith("/admin/consultants/") or (p.startswith("/admin/clients/") and p.endswith("/logo"))
+    uploads = p.startswith("/admin/clients/") and p.endswith("/roadmap/import") or p.startswith("/admin/clients/") and p.endswith("/files") or p == "/portal/api/drive" or p.startswith("/admin/consultants/") or (p.startswith("/admin/clients/") and p.endswith("/logo"))
     limit = MAX_FILE + 1024 * 1024 if uploads else 64 * 1024
     if (request.content_length or 0) > limit:
         abort(413)
@@ -885,6 +887,104 @@ def admin_report_preview(cid):
     return jsonify(html=reports.render(str((request.get_json(silent=True) or {}).get("body") or "")[:60000]))
 
 
+# ---------------------------------------------------------------- project roadmap
+@bp.get("/admin/clients/<int:cid>/roadmap")
+def admin_roadmap(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    if not c:
+        abort(404)
+    return render_template_string(ADMIN_ROADMAP, c=c, cid=cid, sprints=roadmap.sprints(cid), data=roadmap.data_json(cid, False),
+                                  n=len(roadmap.items(cid)), note=request.args.get("note", "")[:300], err=request.args.get("err", "")[:300])
+
+
+@bp.post("/admin/clients/<int:cid>/roadmap/import")
+def admin_roadmap_import(cid):
+    r = admin_only()
+    if r:
+        return r
+    if not client_row(cid):
+        abort(404)
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return redirect(f"/admin/clients/{cid}/roadmap?err=Choose+a+CSV+file+first.")
+    added, updated, err = roadmap.import_csv(cid, f.read(5 * 1024 * 1024), request.form.get("mode") == "replace")
+    if err:
+        return redirect(f"/admin/clients/{cid}/roadmap?err=" + urllib.parse.quote(err))
+    return redirect(f"/admin/clients/{cid}/roadmap?note=" + urllib.parse.quote(f"Imported: {added} tasks added, {updated} updated."))
+
+
+@bp.get("/admin/clients/<int:cid>/roadmap.csv")
+def admin_roadmap_export(cid):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    if not c:
+        abort(404)
+    name = re.sub(r"[^a-z0-9]+", "-", (c["company"] or "client").lower()).strip("-") or "client"
+    return Response(roadmap.export_csv(cid), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={name}-roadmap.csv"})
+
+
+@bp.post("/admin/clients/<int:cid>/roadmap/sprints")
+def admin_roadmap_sprint(cid):
+    r = admin_only()
+    if r:
+        return r
+    if not client_row(cid):
+        abort(404)
+    f = request.form
+    spid = int(f["id"]) if (f.get("id") or "").isdigit() else None
+    if f.get("action") == "delete" and spid:
+        roadmap.delete_sprint(cid, spid)
+        return redirect(f"/admin/clients/{cid}/roadmap?note=Sprint+deleted.+Its+tasks+are+now+under+No+sprint.#sprints")
+    err = roadmap.save_sprint(cid, spid, f.get("name"), f.get("start"), f.get("end"))
+    if err:
+        return redirect(f"/admin/clients/{cid}/roadmap?err=" + urllib.parse.quote(err) + "#sprints")
+    return redirect(f"/admin/clients/{cid}/roadmap?note=Sprint+saved.#sprints")
+
+
+@bp.route("/admin/clients/<int:cid>/roadmap/items/new", methods=["GET", "POST"])
+@bp.route("/admin/clients/<int:cid>/roadmap/items/<int:iid>", methods=["GET", "POST"])
+def admin_roadmap_item(cid, iid=None):
+    r = admin_only()
+    if r:
+        return r
+    c = client_row(cid)
+    it = roadmap.item(cid, iid) if iid else {k: "" for k in roadmap.ITEM_COLS} | {"id": None, "status": "Not started", "owner": "", "hidden": 0}
+    if not c or (iid and not it):
+        abort(404)
+    err = ""
+    if request.method == "POST":
+        if request.form.get("action") == "delete" and iid:
+            S.q("DELETE FROM roadmap_items WHERE id = ? AND client_id = ?", (iid, cid))
+            commit()
+            return redirect(f"/admin/clients/{cid}/roadmap?note=Task+deleted.")
+        if not S.clip(request.form.get("title"), 2000):
+            err = "Give the task a name."
+            it.update({k: request.form.get(k, "") for k in roadmap.FIELDS})
+        else:
+            roadmap.save_item(cid, iid, request.form)
+            return redirect(f"/admin/clients/{cid}/roadmap?note=" + ("Task+saved." if iid else "Task+added."))
+    return render_template_string(ADMIN_RM_ITEM, c=c, cid=cid, iid=iid, it=it, err=err, sprints=roadmap.sprints(cid),
+                                  statuses=roadmap.STATUSES, priorities=roadmap.PRIORITIES,
+                                  suggest={k: sorted({x[k] for x in roadmap.items(cid) if x[k]}) for k in ("product", "lane", "owner", "feature")})
+
+
+@bp.post("/admin/clients/<int:cid>/roadmap/items/<int:iid>/status")
+def admin_roadmap_status(cid, iid):
+    r = admin_only()
+    if r:
+        return r
+    if not roadmap.item(cid, iid):
+        abort(404)
+    roadmap.set_status(cid, iid, (request.get_json(silent=True) or {}).get("status"))
+    return jsonify(ok=True)
+
+
 @bp.post("/portal/api/reports/<int:rid>/read")
 def portal_report_read(rid):
     c = current_client()
@@ -1038,7 +1138,7 @@ def portal():
     first = (c["contact_name"] or "").split(" ")[0] or c["company"]
     msgs = messages_for(c["id"])
     return render_template_string(PORTAL, c=c, first=first, pr=pricing_content(), stage=stage_card(c.get("phase") if c.get("phase") in PHASES else "Introduction", consultant_for(c)), msgs=msgs, unread=sum(1 for m in msgs if m["sender"] == "consultant" and not m["read_client"]), phases=PHASES, phase_links=PHASE_LINKS, con=consultant_for(c), legal=files_for(c["id"], "legal"),
-                                  drive=files_for(c["id"], "drive"), drive_tree=drive.tree_json(c["id"], "client"), viewing_as=bool(session.get("view_as")), reps=[dict(x, html=reports.render(x["body"])) for x in reports.for_client(c["id"], True)], inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
+                                  drive=files_for(c["id"], "drive"), drive_tree=drive.tree_json(c["id"], "client"), viewing_as=bool(session.get("view_as")), rm_data=roadmap.data_json(c["id"], True), reps=[dict(x, html=reports.render(x["body"])) for x in reports.for_client(c["id"], True)], inv=inv, inv_err=inv_err, stripe=bool(STRIPE_KEY),
                                   note=request.args.get("note", "")[:200])
 
 
@@ -1189,7 +1289,7 @@ ADMIN_LIST = U.head("clients", "Clients") + """
 </tbody></table></div>{% else %}<div class="card empty">No clients yet. Add your first client to give them a portal login and share documents.</div>{% endif %}
 </section>""" + ADMIN_FOOT
 
-TABS_SRC = """{% macro ctabs(cid, active) %}<nav class="ctabs" aria-label="Client sections"><a href="/admin/clients/{{ cid }}"{% if active == 'profile' %} class="on" aria-current="page"{% endif %}>Profile and files</a><a href="/admin/clients/{{ cid }}/inbox"{% if active == 'inbox' %} class="on" aria-current="page"{% endif %}>Inbox{% set n = client_unread(cid) %}{% if n %} <span class="n">{{ n }}</span>{% endif %}</a><a href="/admin/clients/{{ cid }}/reports"{% if active == 'reports' %} class="on" aria-current="page"{% endif %}>Reports</a><a href="/admin/clients/{{ cid }}/activity"{% if active == 'activity' %} class="on" aria-current="page"{% endif %}>Portal activity</a>
+TABS_SRC = """{% macro ctabs(cid, active) %}<nav class="ctabs" aria-label="Client sections"><a href="/admin/clients/{{ cid }}"{% if active == 'profile' %} class="on" aria-current="page"{% endif %}>Profile and files</a><a href="/admin/clients/{{ cid }}/inbox"{% if active == 'inbox' %} class="on" aria-current="page"{% endif %}>Inbox{% set n = client_unread(cid) %}{% if n %} <span class="n">{{ n }}</span>{% endif %}</a><a href="/admin/clients/{{ cid }}/reports"{% if active == 'reports' %} class="on" aria-current="page"{% endif %}>Reports</a><a href="/admin/clients/{{ cid }}/roadmap"{% if active == 'roadmap' %} class="on" aria-current="page"{% endif %}>Roadmap</a><a href="/admin/clients/{{ cid }}/activity"{% if active == 'activity' %} class="on" aria-current="page"{% endif %}>Portal activity</a>
 <form method="post" action="/admin/clients/{{ cid }}/view-as" target="_blank" class="viewas"><button class="ghost" type="submit" title="Opens their portal in a new tab, signed in as them. Read-only.">""" + U.ico("portal", 16) + """ View portal as client</button></form></nav>
 <style>.ctabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 18px}.ctabs a{padding:10px 14px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
 .ctabs .viewas{margin:0 0 6px auto;align-self:center}.ctabs .viewas button{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;font-size:13.5px}
@@ -1389,6 +1489,63 @@ ADMIN_REPORT = U.head("clients", "Report") + TABS_SRC + """
 </script>
 </section>""" + ADMIN_FOOT
 
+ADMIN_ROADMAP = U.head("clients", "Roadmap") + TABS_SRC + """
+<section><p><a href="/admin/clients">← All clients</a></p><h2>{{ c.company }}</h2>
+{{ ctabs(cid, 'roadmap') }}
+{% if err %}<p class="err" role="alert">{{ err }}</p>{% elif note %}<p class="ok" role="status">{{ note }}</p>{% endif %}
+<div class="rmadm">
+ <div class="card"><p class="mono">Tasks</p><p class="empty" style="font-size:14px;margin:4px 0 12px">{{ n }} tasks. The client sees everything not marked hidden under Project roadmap, as a list, columns or timeline.</p>
+  <div class="row"><a class="btn" href="/admin/clients/{{ cid }}/roadmap/items/new">Add task</a>{% if n %}<a class="btn ghost" href="/admin/clients/{{ cid }}/roadmap.csv">Export CSV</a>{% endif %}</div></div>
+ <form class="card" method="post" action="/admin/clients/{{ cid }}/roadmap/import" enctype="multipart/form-data"><p class="mono">Import from CSV</p>
+  <p class="empty" style="font-size:14px;margin:4px 0 10px">Use the sprint timeline template columns (Task, ID, Sprint, Sprint start, Sprint end, Product, Lane, Priority, Days, Owner, Status, Done on, Depends on, Feature, Rank, Notes).</p>
+  <input type="file" name="file" accept=".csv,text/csv" required aria-label="CSV file">
+  <div class="row" style="margin-top:10px"><label class="check"><input type="radio" name="mode" value="merge" checked> Add new and update matching IDs</label><label class="check"><input type="radio" name="mode" value="replace"> Replace the whole roadmap</label></div>
+  <div class="row" style="margin-top:10px"><button type="submit">Import</button></div></form>
+ <div class="card" id="sprints"><p class="mono">Sprints</p>
+  {% for sp in sprints %}<form method="post" action="/admin/clients/{{ cid }}/roadmap/sprints" class="sprow"><input type="hidden" name="id" value="{{ sp.id }}">
+   <input type="text" name="name" value="{{ sp.name }}" aria-label="Sprint name" required><input type="date" name="start" value="{{ sp.start or '' }}" aria-label="Start"><input type="date" name="end" value="{{ sp.end or '' }}" aria-label="End">
+   <button class="ghost" type="submit">Save</button><button class="ghost" type="submit" name="action" value="delete" onclick="return confirm('Delete this sprint? Its tasks stay, under No sprint.')" aria-label="Delete sprint">×</button></form>{% endfor %}
+  <form method="post" action="/admin/clients/{{ cid }}/roadmap/sprints" class="sprow"><input type="text" name="name" placeholder="New sprint name" aria-label="New sprint name" required><input type="date" name="start" aria-label="Start"><input type="date" name="end" aria-label="End"><button type="submit">Add</button></form>
+  <p class="empty" style="font-size:12.5px;margin:6px 0 0">Leave the dates empty for unscheduled work, like Later.</p></div>
+</div>
+<h2 style="font-size:19px;margin-top:26px">Roadmap <span class="empty" style="font:400 14px Inter,sans-serif">Same views the client sees. Change a status straight from the list; click a task to edit it.</span></h2>
+<div id="rm-root"></div>
+<style>""" + roadmap.CSS + """
+.rmadm{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1fr) minmax(0,1.3fr);gap:14px;align-items:start}
+@media (max-width:1150px){.rmadm{grid-template-columns:minmax(0,1fr)}}
+.sprow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto;gap:6px;margin-top:12px;align-items:center}.sprow input[type=text]{grid-column:1/-1}.sprow input[type=date]{min-width:0}
+.sprow input{padding:7px 8px;font-size:13.5px}.sprow button{padding:7px 12px;font-size:13px}
+.rm-t a{color:var(--ink);text-decoration:none}.rm-t a:hover{color:var(--cyan)}.rm-card b a{color:var(--ink);text-decoration:none}
+</style>
+<script>""" + roadmap.JS + """
+amRoadmap(document.getElementById('rm-root'),{{ data|safe }},{key:'admin-{{ cid }}',admin:'/admin/clients/{{ cid }}/roadmap/items/',
+  onStatus:function(id,v){return fetch('/admin/clients/{{ cid }}/roadmap/items/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:v}),credentials:'same-origin'}).then(function(r){return r.ok}).catch(function(){return false})}});
+</script>
+</section>""" + ADMIN_FOOT
+
+ADMIN_RM_ITEM = U.head("clients", "Roadmap task") + TABS_SRC + """
+<section><p><a href="/admin/clients/{{ cid }}/roadmap">← {{ c.company }} roadmap</a></p><h2>{{ it.title if iid else 'New task' }}</h2>
+{{ ctabs(cid, 'roadmap') }}
+{% if err %}<p class="err" role="alert">{{ err }}</p>{% endif %}
+<form class="card" method="post" style="max-width:980px">
+ <div class="grid">
+  <div class="full"><label class="f" for="title">Task</label><input type="text" id="title" name="title" value="{{ it.title or '' }}" required></div>
+  <div><label class="f" for="ref">ID</label><input type="text" id="ref" name="ref" value="{{ it.ref or '' }}" placeholder="Added automatically, e.g. T-126"></div>
+  <div><label class="f" for="sprint_id">Sprint</label><select id="sprint_id" name="sprint_id"><option value="">No sprint</option>{% for sp in sprints %}<option value="{{ sp.id }}"{% if it.sprint_id == sp.id %} selected{% endif %}>{{ sp.name }}{% if sp.start %} ({{ sp.start }} to {{ sp.end }}){% endif %}</option>{% endfor %}</select></div>
+  <div><label class="f" for="status">Status</label><select id="status" name="status">{% for x in statuses %}<option{% if it.status == x %} selected{% endif %}>{{ x }}</option>{% endfor %}{% if it.status and it.status not in statuses %}<option selected>{{ it.status }}</option>{% endif %}</select></div>
+  <div><label class="f" for="priority">Priority</label><select id="priority" name="priority"><option value="">None</option>{% for x in priorities %}<option{% if it.priority == x %} selected{% endif %}>{{ x }}</option>{% endfor %}{% if it.priority and it.priority not in priorities %}<option selected>{{ it.priority }}</option>{% endif %}</select></div>
+  {% for k, label in [('product','Product'),('lane','Lane'),('owner','Owner'),('feature','Feature')] %}<div><label class="f" for="{{ k }}">{{ label }}</label><input type="text" id="{{ k }}" name="{{ k }}" value="{{ it[k] or '' }}" list="dl-{{ k }}"><datalist id="dl-{{ k }}">{% for v in suggest[k] %}<option value="{{ v }}">{% endfor %}</datalist></div>{% endfor %}
+  <div><label class="f" for="days">Days (estimate)</label><input type="text" id="days" name="days" value="{{ it.days or '' }}" inputmode="decimal"></div>
+  <div><label class="f" for="done_on">Done on</label><input type="date" id="done_on" name="done_on" value="{{ it.done_on or '' }}"></div>
+  <div><label class="f" for="depends">Depends on</label><input type="text" id="depends" name="depends" value="{{ it.depends or '' }}"></div>
+  <div><label class="f" for="rank">Rank after 1 Jan</label><input type="text" id="rank" name="rank" value="{{ it.rank or '' }}" placeholder="High, Medium, Low"></div>
+  <div class="full"><label class="f" for="notes">Notes</label><textarea id="notes" name="notes" style="min-height:80px">{{ it.notes or '' }}</textarea></div>
+  <div class="full"><label class="check"><input type="checkbox" name="hidden" value="1"{% if it.hidden %} checked{% endif %}> Hide from the client (internal task)</label></div>
+ </div>
+ <div class="row" style="margin-top:18px"><button type="submit">{{ 'Save task' if iid else 'Add task' }}</button><a class="btn ghost" href="/admin/clients/{{ cid }}/roadmap">Cancel</a>
+ {% if iid %}<button class="danger" type="submit" name="action" value="delete" style="margin-left:auto" formnovalidate onclick="return confirm('Delete this task?')">Delete task</button>{% endif %}</div>
+</form></section>""" + ADMIN_FOOT
+
 ADMIN_PRICING = U.head("pricing", "Pricing page") + """
 <section><div class="row" style="justify-content:space-between"><h2 style="margin:0">Pricing page</h2></div>
 <p class="empty" style="margin:10px 0 16px">Edits the Engagement &amp; pricing page every client sees in their portal. Leave a title blank to hide that card or step. To see the result, sign in to the portal as a client (for example the demo client).{% if not custom %} You're seeing the default content.{% endif %}</p>
@@ -1467,6 +1624,7 @@ ICON = {
  "doc": '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8"/>',
  "card": '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>',
  "drive": '<path d="M3 7h6l2 2h10v10H3z"/>',
+ "roadmap": '<path d="M4 6h10M4 12h16M4 18h7"/><circle cx="17" cy="6" r="2"/><circle cx="14" cy="18" r="2"/>',
  "report": '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
  "gear": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
  "mail": '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/>',
@@ -1683,6 +1841,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 .rdoc{padding:28px 32px}.rdoc header{margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--line)}.rdoc header h3{font-size:24px;margin-top:6px}
 @media (max-width:640px){.rdoc{padding:20px 18px}}
 """ + reports.CSS + """
+""" + roadmap.CSS + """
 .asbar{position:sticky;top:0;z-index:30;background:#F0C987;color:#2e1f05;font:500 14px var(--fb)}
 .asbar .in{max-width:1240px;margin:0 auto;padding:8px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .asbar form{margin:0 0 0 auto}.asbar button{font:600 13.5px var(--fb);background:#2e1f05;color:#F0C987;border:0;border-radius:7px;padding:7px 14px;cursor:pointer}
@@ -1700,6 +1859,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
  <a href="#consultant" data-v="consultant">{{ icon('user')|safe }}Your Consultant</a>
  <a href="#legal" data-v="legal">{{ icon('doc')|safe }}Project docs</a>
  <a href="#reports" data-v="reports">{{ icon('report')|safe }}Project reports{% set nr = reps|rejectattr('read_client')|list|length %}{% if nr %}<span class="badge"><span class="sr">: </span>{{ nr }} new</span>{% endif %}</a>
+ <a href="#roadmap" data-v="roadmap">{{ icon('roadmap')|safe }}Project roadmap</a>
  <a href="#invoices" data-v="invoices">{{ icon('card')|safe }}Invoices</a>
  <a href="#drive" data-v="drive">{{ icon('drive')|safe }}Your Drive</a>
  <a href="#pricing" data-v="pricing">{{ icon('tag')|safe }}Engagement & pricing</a>
@@ -1784,6 +1944,11 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
   <nav class="rlist" aria-label="Reports">{% for x in reps %}<button type="button" data-r="{{ x.id }}" class="{{ 'un' if not x.read_client }}"><b>{{ x.title }}</b><small>{{ x.period or x.published_at[:10] }}{% if not x.read_client %} · <span class="newp">New</span>{% endif %}</small></button>{% endfor %}</nav>
   <div>{% for x in reps %}<article class="card rdoc" id="rep-{{ x.id }}" hidden><header><span class="label">{{ x.period and ('Week of ' ~ x.period) or x.published_at[:10] }}</span><h3>{{ x.title }}</h3></header><div class="rbody">{{ x.html|safe }}</div></article>{% endfor %}</div>
  </div>{% else %}<div class="empty">No reports yet. Your weekly project reports will appear here.</div>{% endif %}
+</section>
+
+<section class="view" id="v-roadmap" hidden>
+ <div class="vh"><span class="label">Project roadmap</span><h2>What we're building, and when</h2><p>Every task in the plan, by sprint. Switch between a list, columns and a timeline.</p></div>
+ <div id="rm-root"></div>
 </section>
 
 <section class="view" id="v-invoices" hidden>
@@ -1884,7 +2049,7 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
 </div></footer>
 <script>
 (function(){
-  var views=window.AM_VIEWS=['home','inbox','consultant','legal','reports','invoices','drive','pricing','roi','settings'];
+  var views=window.AM_VIEWS=['home','inbox','consultant','legal','reports','roadmap','invoices','drive','pricing','roi','settings'];
   function show(){var v=(location.hash||'#home').slice(1); if(views.indexOf(v)<0) v='home';
     views.forEach(function(n){document.getElementById('v-'+n).hidden=n!==v});
     document.querySelectorAll('.side a').forEach(function(a){a.classList.toggle('on',a.dataset.v===v); if(a.dataset.v===v) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current')});
@@ -1924,6 +2089,9 @@ td.neg{color:var(--err)}.rnote{margin:14px 0 0;color:var(--faint);font-size:13.5
     if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='Delete?';return}
     fetch('/portal/api/drive/'+b.dataset.del+'/delete',{method:'POST',credentials:'same-origin'}).then(function(){location.reload()});});});
 })();
+</script>
+<script>""" + roadmap.JS + """
+amRoadmap(document.getElementById('rm-root'),{{ rm_data|safe }},{key:'portal',onView:function(v){if(window.amTrack)amTrack('action','Roadmap: '+v+' view')}});
 </script>
 <script>
 (function(){
